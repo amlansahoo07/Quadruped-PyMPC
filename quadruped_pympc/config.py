@@ -90,6 +90,15 @@ mpc_params = {
     'optimize_step_freq':                      False,
     'step_freq_available':                     [1.4, 2.0, 2.4],
 
+    # crawl pattern optimization parameters
+    'optimize_crawl_patterns': True,
+    'crawl_patterns_available': [
+        GaitType.BACKDIAGONALCRAWL.value,    # [0.0, 0.5, 0.75, 0.25] - Current default
+        GaitType.BFDIAGONALCRAWL.value,      # [0.0, 0.25, 0.5, 0.75] - Sequential
+        GaitType.CIRCULARCRAWL.value,        # [0.0, 0.25, 0.75, 0.5] - Circular
+        GaitType.FRONTDIAGONALCRAWL.value,   # [0.5, 1.0, 0.75, 1.25] - Front diagonal
+    ],
+
     # ----- START properties only for the gradient-based mpc -----
 
     # this is used if you want to manually warm start the mpc
@@ -194,7 +203,7 @@ simulation_params = {
     # this is the integration time used in the simulator
     'dt':                          0.002,
 
-    'gait':                        'trot',  # 'trot', 'pace', 'crawl', 'bound', 'full_stance'
+    'gait':                        'crawl',  # 'trot', 'pace', 'crawl', 'bound', 'full_stance'
     'gait_params':                 {'trot': {'step_freq': 1.4, 'duty_factor': 0.65, 'type': GaitType.TROT.value},
                                     'crawl': {'step_freq': 0.5, 'duty_factor': 0.8, 'type': GaitType.BACKDIAGONALCRAWL.value},
                                     'pace': {'step_freq': 1.4, 'duty_factor': 0.7, 'type': GaitType.PACE.value},
@@ -203,7 +212,7 @@ simulation_params = {
                                    },
 
     # This is used to activate or deactivate the reflexes upon contact detection
-    'reflex_trigger_mode':       'tracking', # 'tracking', 'geom_contact', False
+    'reflex_trigger_mode': False,       # 'tracking', 'geom_contact', False
     'reflex_next_steps_height_enhancement': False,
     'velocity_modulator': True,
 

@@ -17,6 +17,10 @@ class SRBDBatchedControllerInterface:
         self.optimize_step_freq = cfg.mpc_params['optimize_step_freq']
         self.step_freq_available = cfg.mpc_params['step_freq_available']
 
+        # crawl pattern optimization parameters
+        self.optimize_crawl_patterns = cfg.mpc_params['optimize_crawl_patterns']
+        self.crawl_patterns_available = cfg.mpc_params['crawl_patterns_available']
+
         from quadruped_pympc.controllers.gradient.nominal.centroidal_nmpc_gait_adaptive import Acados_NMPC_GaitAdaptive
 
         self.batched_controller = Acados_NMPC_GaitAdaptive()

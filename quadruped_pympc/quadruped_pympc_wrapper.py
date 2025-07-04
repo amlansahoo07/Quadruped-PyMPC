@@ -31,7 +31,7 @@ class QuadrupedPyMPC_Wrapper:
 
         self.srbd_controller_interface = SRBDControllerInterface()
 
-        if cfg.mpc_params['type'] != 'sampling' and cfg.mpc_params['optimize_step_freq']:
+        if cfg.mpc_params['type'] != 'sampling' and (cfg.mpc_params['optimize_step_freq'] or cfg.mpc_params['optimize_crawl_patterns']):
             self.srbd_batched_controller_interface = SRBDBatchedControllerInterface()
 
         self.wb_interface = WBInterface(initial_feet_pos=initial_feet_pos(frame='world'), legs_order=legs_order, feet_geom_id =  feet_geom_id)

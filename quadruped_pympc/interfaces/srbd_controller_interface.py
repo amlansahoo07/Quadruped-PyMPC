@@ -29,7 +29,7 @@ class SRBDControllerInterface:
 
             self.controller = Acados_NMPC_Nominal()
 
-            if self.optimize_step_freq:
+            if self.optimize_step_freq or self.optimize_crawl_patterns:
                 from quadruped_pympc.controllers.gradient.nominal.centroidal_nmpc_gait_adaptive import (
                     Acados_NMPC_GaitAdaptive,
                 )
