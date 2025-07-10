@@ -18,6 +18,8 @@ class SRBDControllerInterface:
 
         self.previous_contact_mpc = np.array([1, 1, 1, 1])
 
+        self.optimize_crawl_patterns = cfg.mpc_params['optimize_crawl_patterns']
+
         # 'nominal' optimized directly the GRF
         # 'input_rates' optimizes the delta GRF
         # 'sampling' is a gpu-based mpc that samples the GRF
@@ -33,7 +35,6 @@ class SRBDControllerInterface:
                 from quadruped_pympc.controllers.gradient.nominal.centroidal_nmpc_gait_adaptive import (
                     Acados_NMPC_GaitAdaptive,
                 )
-
                 self.batched_controller = Acados_NMPC_GaitAdaptive()
 
         elif self.type == 'input_rates':

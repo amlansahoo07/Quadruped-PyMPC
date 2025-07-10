@@ -19,6 +19,8 @@ class PeriodicGaitGenerator:
         self._phase_signal, self._init = None, None
         self.reset()
 
+    # set phase offset according to the gait type
+
     def reset(self):
         # Choose of the gait, this represent the delay of each leg
         if self.gait_type == GaitType.TROT.value:

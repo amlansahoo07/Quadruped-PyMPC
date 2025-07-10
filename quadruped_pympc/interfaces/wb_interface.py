@@ -395,7 +395,7 @@ class WBInterface:
             optimize_swing = self.stc.check_touch_down_condition(self.current_contact, self.previous_contact)
         else:
             optimize_swing = 0
-
+        # print(f"WBInterface: optimize_swing = {optimize_swing}")
         return state_current, ref_state, contact_sequence, self.step_height, optimize_swing
 
     def compute_stance_and_swing_torque(

@@ -167,6 +167,33 @@ class QuadrupedPyMPC_Wrapper:
                     self.wb_interface.pgg.gait_type,
                     optimize_swing,
                 )
+            
+            # Optimize crawl patterns
+            # This is only done if the controller is not sampling-based, and if the crawl patterns
+            # optimization is enabled in the config, and if the gait type is one of the crawl patterns.
+            # The crawl patterns are optimized using the SRBD batched controller interface. 
+            if (cfg.mpc_params['type'] != 'sampling' and 
+                cfg.mpc_params['optimize_crawl_patterns']):
+                
+                best_pattern_idx, pattern_cost = self.srbd_batched_controller_interface.optimize_crawl_pattern(
+                    state_current,
+                    ref_state,
+                    inertia,
+                    self.wb_interface.pgg.phase_signal,
+                    self.best_sample_freq,  # Use optimized step frequency
+                    self.wb_interface.pgg.duty_factor,
+                    optimize_swing,
+                )
+            
+                # Update the periodic gait generator with the optimal pattern
+                optimal_crawl_type = self.srbd_batched_controller_interface.crawl_patterns_available[best_pattern_idx]
+                if optimal_crawl_type != self.wb_interface.pgg.gait_type:
+                    print(f"Switching from crawl pattern {self.wb_interface.pgg.gait_type} to {optimal_crawl_type}")
+                    self.wb_interface.pgg.gait_type = optimal_crawl_type
+                    self.wb_interface.pgg.reset()  # Reset to apply new phase offsets
+                else:
+                    # print(f"Keeping the same crawl pattern: {optimal_crawl_type}")
+                    pass
 
         # Compute Swing and Stance Torque ---------------------------------------------------------------------------
         tau, des_joints_pos, des_joints_vel = self.wb_interface.compute_stance_and_swing_torque(
