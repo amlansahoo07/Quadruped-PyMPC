@@ -71,7 +71,7 @@ mpc_params = {
 
     # horizon is the number of timesteps in the future that the mpc will optimize
     # dt is the discretization time used in the mpc
-    'horizon':                                 12,
+    'horizon':                                 24,
     'dt':                                      0.02,
 
     # GRF limits for each single leg
@@ -87,16 +87,16 @@ mpc_params = {
     # if this is true, we optimize the step frequency as well
     # for the sampling controller, this is done in the rollout
     # for the gradient-based controller, this is done with a batched version of the ocp
-    'optimize_step_freq':                      True,
+    'optimize_step_freq':                      False,
     'step_freq_available':                     [1.4, 2.0, 2.4], # [1.4, 2.0, 2.4], #[0.5, 0.7, 0.9]
 
     # crawl pattern optimization parameters
-    'optimize_crawl_patterns': False,
+    'optimize_crawl_patterns': True,
     'crawl_patterns_available': [
-        GaitType.BACKDIAGONALCRAWL.value,    # [0.0, 0.5, 0.75, 0.25] - Current default
-        GaitType.BFDIAGONALCRAWL.value,      # [0.0, 0.25, 0.5, 0.75] - Sequential
-        GaitType.CIRCULARCRAWL.value,        # [0.0, 0.25, 0.75, 0.5] - Circular
-        GaitType.FRONTDIAGONALCRAWL.value,   # [0.5, 1.0, 0.75, 1.25] - Front diagonal
+        GaitType.BACKDIAGONALCRAWL.value,    # Value 5 - [0.0, 0.5, 0.75, 0.25] - Current default
+        GaitType.BFDIAGONALCRAWL.value,      # Value 4 - [0.0, 0.25, 0.5, 0.75] - Sequential
+        GaitType.CIRCULARCRAWL.value,        # Value 3 - [0.0, 0.25, 0.75, 0.5] - Circular
+        GaitType.FRONTDIAGONALCRAWL.value,   # Value 6 - [0.5, 1.0, 0.75, 1.25] - Front diagonal
     ],
 
     # ----- START properties only for the gradient-based mpc -----
@@ -203,7 +203,7 @@ simulation_params = {
     # this is the integration time used in the simulator
     'dt':                          0.002,
 
-    'gait':                        'trot',  # 'trot', 'pace', 'crawl', 'bound', 'full_stance'
+    'gait':                        'crawl',  # 'trot', 'pace', 'crawl', 'bound', 'full_stance'
     'gait_params':                 {'trot': {'step_freq': 1.4, 'duty_factor': 0.65, 'type': GaitType.TROT.value},
                                     'crawl': {'step_freq': 0.5, 'duty_factor': 0.8, 'type': GaitType.BACKDIAGONALCRAWL.value},
                                     'pace': {'step_freq': 1.4, 'duty_factor': 0.7, 'type': GaitType.PACE.value},

@@ -21,6 +21,8 @@ class SRBDBatchedControllerInterface:
         self.optimize_crawl_patterns = cfg.mpc_params['optimize_crawl_patterns']
         self.crawl_patterns_available = cfg.mpc_params['crawl_patterns_available']
 
+        self.last_best_crawl_pattern_idx = 0  # Default to first pattern
+
         from quadruped_pympc.controllers.gradient.nominal.centroidal_nmpc_gait_adaptive import Acados_NMPC_GaitAdaptive
 
         self.batched_controller = Acados_NMPC_GaitAdaptive()
@@ -104,10 +106,9 @@ class SRBDBatchedControllerInterface:
             best_cost: Cost of the best pattern
         """
         
-        if not self.optimize_crawl_patterns:
-            print("Crawl pattern optimization is disabled or not applicable.")
-            # Return default pattern (BACKDIAGONALCRAWL)
-            return 0, float('inf')
+        if not (self.optimize_crawl_patterns and optimize_swing == 1):
+            # print("Crawl pattern optimization is disabled or not applicable.")
+            return self.last_best_crawl_pattern_idx, float('inf')
         
         # Generate contact sequences for all crawl patterns
         num_patterns = len(self.crawl_patterns_available)
@@ -125,24 +126,17 @@ class SRBDBatchedControllerInterface:
                 contact_sequence_dts=self.contact_sequence_dts,
                 contact_sequence_lenghts=self.contact_sequence_lenghts,
             )
-        
-        # # Use existing batch controller to evaluate all patterns
-        # costs, _ = self.batched_controller.compute_batch_control(
-        #     state_current, ref_state, contact_sequence_temp
-        # )
-        
-        # # Find best pattern
-        # best_pattern_idx = np.argmin(costs)
-        # best_cost = costs[best_pattern_idx]
 
         # Use the new crawl pattern batch controller
-        costs, best_pattern_idx = self.batched_controller.compute_batch_control_crawl_patterns(
+        costs, best_pattern_idx = self.batched_controller.compute_batch_control_crawl(
             state_current, ref_state, contact_sequences_batch
         )
         
         best_cost = costs[best_pattern_idx]
-        
-        # print(f"Selected crawl pattern {self.crawl_patterns_available[best_pattern_idx]} "
-        #     f"(index {best_pattern_idx}) with cost {best_cost:.3f}")
-        
+
+        # Update the last best pattern
+        self.last_best_crawl_pattern_idx = best_pattern_idx
+
+        # breakpoint()
+
         return best_pattern_idx, best_cost

@@ -1257,6 +1257,179 @@ class Acados_NMPC_GaitAdaptive:
 
         return costs, best_freq
 
+    def compute_batch_control_crawl(
+        self,
+        state,
+        reference,
+        contact_sequence,
+        constraint=None,
+        external_wrenches=np.zeros((6,)),
+        inertia=config.inertia.reshape((9,)),
+        mass=config.mass,
+    ):
+        start = time.time()
+
+        costs = []
+
+        # Perform the scaling of the states and the reference
+        state, reference, constraint = self.perform_scaling(state, reference, constraint)
+
+        # Fill reference (self.states_dim+self.inputs_dim)
+        idx_ref_foot_to_assign = np.array([0, 0, 0, 0])
+        yref = np.zeros(shape=(self.states_dim + self.inputs_dim,))
+        yref[0:3] = reference["ref_position"]
+        yref[3:6] = reference["ref_linear_velocity"]
+        yref[6:9] = reference["ref_orientation"]
+        yref[9:12] = reference["ref_angular_velocity"]
+        yref[12:15] = reference["ref_foot_FL"][idx_ref_foot_to_assign[0]]
+        yref[15:18] = reference["ref_foot_FR"][idx_ref_foot_to_assign[1]]
+        yref[18:21] = reference["ref_foot_RL"][idx_ref_foot_to_assign[2]]
+        yref[21:24] = reference["ref_foot_RR"][idx_ref_foot_to_assign[3]]
+
+        yref_N = np.zeros(shape=(self.states_dim,))
+        yref_N[0:3] = reference["ref_position"]
+        yref_N[3:6] = reference["ref_linear_velocity"]
+        yref_N[6:9] = reference["ref_orientation"]
+        yref_N[9:12] = reference["ref_angular_velocity"]
+
+        # Set initial state constraint. We teleported the robot foothold
+        # to the previous optimal foothold. This is done to avoid the optimization
+        # of a foothold that is not considered at all at touchdown! In any case,
+        # the height cames always from the VFA
+        FL_contact_sequence = contact_sequence[0][0]
+        FR_contact_sequence = contact_sequence[0][1]
+        RL_contact_sequence = contact_sequence[0][2]
+        RR_contact_sequence = contact_sequence[0][3]
+        if FL_contact_sequence[0] == 0:
+            state["foot_FL"] = reference["ref_foot_FL"][0]
+
+        if FR_contact_sequence[0] == 0:
+            state["foot_FR"] = reference["ref_foot_FR"][0]
+
+        if RL_contact_sequence[0] == 0:
+            state["foot_RL"] = reference["ref_foot_RL"][0]
+
+        if RR_contact_sequence[0] == 0:
+            state["foot_RR"] = reference["ref_foot_RR"][0]
+
+        # Fill stance param, friction and stance proximity
+        # (stance proximity will disable foothold optimization near a stance!!)
+        mu = config.mpc_params["mu"]
+
+        state_acados = np.concatenate(
+            (
+                state["position"],
+                state["linear_velocity"],
+                state["orientation"],
+                state["angular_velocity"],
+                state["foot_FL"],
+                state["foot_FR"],
+                state["foot_RL"],
+                state["foot_RR"],
+                self.integral_errors,
+            )
+        )  # .reshape((self.states_dim, 1))
+
+        for n in range(self.batch):
+            # Take the array of the contact sequence and split it in 4 arrays,
+            # one for each leg
+            FL_contact_sequence = contact_sequence[n][0]
+            FR_contact_sequence = contact_sequence[n][1]
+            RL_contact_sequence = contact_sequence[n][2]
+            RR_contact_sequence = contact_sequence[n][3]
+
+            for j in range(self.horizon):
+                # Update the idx_ref_foot_to_assign. Every time there is a change in the contact phase
+                # between 1 and 0, it means that the leg go into swing and a new reference is needed!!!
+                if j > 1 and j < self.horizon - 1:
+                    if FL_contact_sequence[j + 1] == 0 and FL_contact_sequence[j] == 1:
+                        if reference['ref_foot_FL'].shape[0] > idx_ref_foot_to_assign[0] + 1:
+                            idx_ref_foot_to_assign[0] += 1
+                    if FR_contact_sequence[j + 1] == 0 and FR_contact_sequence[j] == 1:
+                        if reference['ref_foot_FR'].shape[0] > idx_ref_foot_to_assign[1] + 1:
+                            idx_ref_foot_to_assign[1] += 1
+                    if RL_contact_sequence[j + 1] == 0 and RL_contact_sequence[j] == 1:
+                        if reference['ref_foot_RL'].shape[0] > idx_ref_foot_to_assign[2] + 1:
+                            idx_ref_foot_to_assign[2] += 1
+                    if RR_contact_sequence[j + 1] == 0 and RR_contact_sequence[j] == 1:
+                        if reference['ref_foot_RR'].shape[0] > idx_ref_foot_to_assign[3] + 1:
+                            idx_ref_foot_to_assign[3] += 1
+
+                # Setting the reference to acados
+                self.batch_solver.ocp_solvers[n].set(j, "yref", yref)
+
+                # Fill last step horizon reference (self.states_dim - no control action!!)
+            yref_N[12:15] = reference["ref_foot_FL"][idx_ref_foot_to_assign[0]]
+            yref_N[15:18] = reference["ref_foot_FR"][idx_ref_foot_to_assign[1]]
+            yref_N[18:21] = reference["ref_foot_RL"][idx_ref_foot_to_assign[2]]
+            yref_N[21:24] = reference["ref_foot_RR"][idx_ref_foot_to_assign[3]]
+
+            # Setting the reference to acados
+            self.batch_solver.ocp_solvers[n].set(self.horizon, "yref", yref_N)
+
+            # Set the parameters to  acados
+            for j in range(self.horizon):
+                param = np.array(
+                    [
+                        FL_contact_sequence[j],
+                        FR_contact_sequence[j],
+                        RL_contact_sequence[j],
+                        RR_contact_sequence[j],
+                        mu,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        state["position"][0],
+                        state["position"][1],
+                        state["position"][2],
+                        state["orientation"][2],
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        inertia[0],
+                        inertia[1],
+                        inertia[2],
+                        inertia[3],
+                        inertia[4],
+                        inertia[5],
+                        inertia[6],
+                        inertia[7],
+                        inertia[8],
+                        mass,
+                    ]
+                )
+                self.batch_solver.ocp_solvers[n].set(j, "p", param)
+
+            # Set initial state constraint acados, converting first the dictionary to np array
+            self.batch_solver.ocp_solvers[n].set(0, "lbx", state_acados)
+            self.batch_solver.ocp_solvers[n].set(0, "ubx", state_acados)
+
+        t_elapsed2 = time.time() - start
+
+        # Solve the batched ocp
+        t0 = time.time()
+        self.batch_solver.solve()
+        t_elapsed = time.time() - t0
+
+        # print("time_python: ", t_elapsed2)
+        # print("time_solver: ", t_elapsed)
+
+        # Extract best pattern based on cost
+        for n in range(self.batch):
+            cost_single_qp = self.batch_solver.ocp_solvers[n].get_cost()
+            costs.append(cost_single_qp)
+
+        best_pattern_index = np.argmin(costs)
+
+        print(f"Compute Batch control was called. Best pattern index: {best_pattern_index}")
+        print(f"Crawl pattern costs: {costs}")
+
+        return costs, best_pattern_index
+
     def compute_batch_control_crawl_patterns(
         self,
         state,

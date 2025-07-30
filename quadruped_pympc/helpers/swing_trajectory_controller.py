@@ -151,6 +151,9 @@ class SwingTrajectoryController:
     #         if current_contact[leg_id] == 1 and previous_contact[leg_id] == 0:
     #                 # print(f"Leg {leg_id} - Current Contact: {current_contact[leg_id]}, Previous Contact: {previous_contact[leg_id]}")
     #                 touch_down = 1
+        
+    #     print(f"Touch down condition: {touch_down}")
+
     #     return touch_down
     
     def check_touch_down_condition(self, current_contact, previous_contact):

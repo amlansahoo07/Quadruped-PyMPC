@@ -47,6 +47,36 @@ class PeriodicGaitGenerator:
         self.n_contact = len(self.phase_offset)
         self.time_before_switch_freq = 0
 
+    def update_gait_type(self, new_gait_type):
+        # Save current phase signal
+        # current_phase_signal = copy.deepcopy(self._phase_signal)
+        
+        # Update gait type
+        self.previous_gait_type = copy.deepcopy(self.gait_type)
+        self.gait_type = new_gait_type
+        
+        # Update phase offsets based on new gait type
+        if self.gait_type == GaitType.TROT.value:
+            self.phase_offset = [0.5, 1.0, 1.0, 0.5]
+        elif self.gait_type == GaitType.PACE.value:
+            self.phase_offset = [0.8, 0.3, 0.8, 0.3]
+        elif self.gait_type == GaitType.BOUNDING.value:
+            self.phase_offset = [0.5, 0.5, 0.0, 0.0]
+        elif self.gait_type == GaitType.CIRCULARCRAWL.value:
+            self.phase_offset = [0.0, 0.25, 0.75, 0.5]
+        elif self.gait_type == GaitType.BFDIAGONALCRAWL.value:
+            self.phase_offset = [0.0, 0.25, 0.5, 0.75]
+        elif self.gait_type == GaitType.BACKDIAGONALCRAWL.value:
+            self.phase_offset = [0.0, 0.5, 0.75, 0.25]
+        elif self.gait_type == GaitType.FRONTDIAGONALCRAWL.value:
+            self.phase_offset = [0.5, 1.0, 0.75, 1.25]
+        else:
+            raise ValueError(f"Invalid gait type: {self.gait_type}")
+        
+        # Reset phase signal
+        self._phase_signal = np.asarray(self.phase_offset)
+        # self._phase_signal = current_phase_signal
+
     def run(self, dt, new_step_freq):
         contact = np.zeros(self.n_contact)
         for leg in range(self.n_contact):
