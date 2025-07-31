@@ -59,6 +59,10 @@ class QuadrupedPyMPC_Wrapper:
         self.candidate_confidence_count = 0
         self.switch_confidence_threshold = 2
 
+        # Add these for crawl pattern optimization timing
+        self.pending_crawl_optimization = False
+        self.last_optimize_swing_detection_step = -1
+
     def compute_actions(
         self,
         com_pos: np.ndarray,
@@ -142,6 +146,17 @@ class QuadrupedPyMPC_Wrapper:
             )
         )
 
+        # Store crawl optimization flag when detected (runs at simulation frequency)
+        if cfg.mpc_params['optimize_crawl_patterns']:
+            if optimize_swing == 1:
+                self.pending_crawl_optimization = True
+                self.last_optimize_swing_detection_step = step_num
+                print(f"Crawl optimization detected at step {step_num} - flagged for next MPC cycle")
+            
+            # Reset flag if too much time has passed (prevent stale flags)
+            if step_num - self.last_optimize_swing_detection_step > 10:  # ~50ms timeout
+                self.pending_crawl_optimization = False
+
         # Solve OCP ---------------------------------------------------------------------------------------
         if step_num % round(1 / (self.mpc_frequency * simulation_dt)) == 0:
             (
@@ -180,73 +195,38 @@ class QuadrupedPyMPC_Wrapper:
                     optimize_swing,
                 )
 
-        # SIMPLE LOGIC 1: Optimize crawl patterns
-        if (cfg.mpc_params['type'] != 'sampling' and cfg.mpc_params['optimize_crawl_patterns']):
-            
-            best_pattern_idx, pattern_cost = self.srbd_batched_controller_interface.optimize_crawl_pattern(
-                state_current,
-                ref_state,
-                inertia,
-                self.wb_interface.pgg.phase_signal,
-                self.best_sample_freq,  # Use optimized step frequency
-                self.wb_interface.pgg.duty_factor,
-                optimize_swing,
-            )
+            # Optimize crawl patterns
+            if (cfg.mpc_params['type'] != 'sampling' and cfg.mpc_params['optimize_crawl_patterns']):
 
-            if pattern_cost != float('inf'): 
-                # Update the periodic gait generator with the optimal pattern
-                optimal_crawl_type = self.srbd_batched_controller_interface.crawl_patterns_available[best_pattern_idx]
-                if optimal_crawl_type != self.wb_interface.pgg.gait_type:
+                if self.pending_crawl_optimization:
                     print("**********************************************************")
-                    print(f"SWITCH: From {self.wb_interface.pgg.gait_type} to {optimal_crawl_type}")
+                    print("Full stance condition met, optimizing crawl patterns...")
                     print("**********************************************************")
-                    # self.wb_interface.pgg.update_gait_type(optimal_crawl_type)
-
-                    self.wb_interface.pgg.gait_type = optimal_crawl_type
-                    self.wb_interface.pgg.reset()
-
-        # # HYSTERESIS LOGIC 2: Implement a hysteresis mechanism for crawl pattern switching
-        # if cfg.mpc_params['type'] != 'sampling' and cfg.mpc_params['optimize_crawl_patterns']:
-
-        #     best_pattern_idx, pattern_cost = self.srbd_batched_controller_interface.optimize_crawl_pattern(
-        #         state_current,
-        #         ref_state,
-        #         inertia,
-        #         self.wb_interface.pgg.phase_signal,
-        #         self.best_sample_freq,
-        #         self.wb_interface.pgg.duty_factor,
-        #         optimize_swing,
-        #     )
-
-        #     if pattern_cost != float('inf'): 
-        #         optimal_crawl_type = self.srbd_batched_controller_interface.crawl_patterns_available[best_pattern_idx]
-
-        #         # --- Hysteresis Logic ---
-        #         if self.candidate_crawl_pattern == optimal_crawl_type:
-        #             # If the same candidate is chosen again, increase confidence
-        #             self.candidate_confidence_count += 1
-        #         else:
-        #             # If a new candidate is chosen, reset the counter
-        #             self.candidate_crawl_pattern = optimal_crawl_type
-        #             self.candidate_confidence_count = 1
+                    # breakpoint()
                 
-        #         print(f"Gait candidate: {self.candidate_crawl_pattern}, Confidence: {self.candidate_confidence_count}/{self.switch_confidence_threshold}")
+                    best_pattern_idx, pattern_cost = self.srbd_batched_controller_interface.optimize_crawl_pattern(
+                        state_current,
+                        ref_state,
+                        inertia,
+                        self.wb_interface.pgg.phase_signal,
+                        self.best_sample_freq,  # Use optimized step frequency
+                        self.wb_interface.pgg.duty_factor,
+                        1,
+                    )
 
-        #         # --- Switching Condition ---
-        #         if (self.candidate_confidence_count >= self.switch_confidence_threshold and self.candidate_crawl_pattern != self.wb_interface.pgg.gait_type):
+                    if pattern_cost != float('inf'): 
+                        # Update the periodic gait generator with the optimal pattern
+                        optimal_crawl_type = self.srbd_batched_controller_interface.crawl_patterns_available[best_pattern_idx]
+                        if optimal_crawl_type != self.wb_interface.pgg.gait_type:
+                            print("**********************************************************")
+                            print(f"SWITCH: From {self.wb_interface.pgg.gait_type} to {optimal_crawl_type}")
+                            print("**********************************************************")
+                            # self.wb_interface.pgg.update_gait_type(optimal_crawl_type)
+
+                            self.wb_interface.pgg.gait_type = optimal_crawl_type
+                            self.wb_interface.pgg.reset()
                     
-        #             print("**********************************************************")
-        #             print(f"CONFIRMED SWITCH: From {self.wb_interface.pgg.gait_type} to {self.candidate_crawl_pattern}")
-        #             print("**********************************************************")
-
-        #             # Perform the switch using a clean reset
-        #             self.wb_interface.pgg.gait_type = self.candidate_crawl_pattern
-        #             self.wb_interface.pgg.reset()
-
-        #             # Reset state and start cooldown
-        #             # self.last_pattern_switch_time = current_time
-        #             self.candidate_confidence_count = 0
-        #             self.candidate_crawl_pattern = None
+                    self.pending_crawl_optimization = False  # Reset flag after processing
 
         # Compute Swing and Stance Torque ---------------------------------------------------------------------------
         tau, des_joints_pos, des_joints_vel = self.wb_interface.compute_stance_and_swing_torque(

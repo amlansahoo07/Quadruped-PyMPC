@@ -135,7 +135,7 @@ class SwingTrajectoryController:
                 ):
                     apex = 1
         return apex
-
+    
     def check_full_stance_condition(self, current_contact):
         stance = 1
         # If one leg is not in stance, the robot is not in full stance
@@ -155,7 +155,33 @@ class SwingTrajectoryController:
     #     print(f"Touch down condition: {touch_down}")
 
     #     return touch_down
+
+    # def check_full_touchdown_condition(self, current_contact, contact_sequence):
+    #     """
+    #     [[1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1.]
+    #     [1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1.]
+    #     [1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1.]
+    #     [1. 1. 1. 1. 1. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.]]
+    #     """
+    #     if not hasattr(self, "was_in_full_stance"):
+    #         self.was_in_full_stance = False  # initialize on first use
+
+    #     in_full_stance = np.all(current_contact == 1)
+
+    #     if in_full_stance and not self.was_in_full_stance:
+    #         self.was_in_full_stance = True
+    #         return 1
+    #     else:
+    #         self.was_in_full_stance = in_full_stance
+    #         return 0
     
+    def check_full_touchdown_condition(self, current_contact, previous_contact):
+        
+        if(np.all(current_contact == 1) and not np.all(previous_contact == 1)):
+            return 1
+        else:
+            return 0
+
     def check_touch_down_condition(self, current_contact, previous_contact):
         """
         Check if optimization should be triggered based on touchdown events.
