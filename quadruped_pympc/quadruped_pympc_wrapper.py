@@ -6,6 +6,8 @@ from quadruped_pympc.interfaces.srbd_batched_controller_interface import SRBDBat
 from quadruped_pympc.interfaces.srbd_controller_interface import SRBDControllerInterface
 from quadruped_pympc.interfaces.wb_interface import WBInterface
 
+from quadruped_pympc.helpers.quadruped_utils import GaitType
+
 _DEFAULT_OBS = ("ref_base_height", "ref_base_angles", "nmpc_GRFs", "nmpc_footholds", "swing_time")
 
 
@@ -62,6 +64,14 @@ class QuadrupedPyMPC_Wrapper:
         # Add these for crawl pattern optimization timing
         self.pending_crawl_optimization = False
         self.last_optimize_swing_detection_step = -1
+
+    def _get_gait_name(self, gait_type_value):
+        """Convert gait type numeric value to readable name."""
+        try:
+            return GaitType(gait_type_value).name
+        except ValueError:
+            return f"UNKNOWN_GAIT_{gait_type_value}"
+
 
     def compute_actions(
         self,
@@ -151,7 +161,7 @@ class QuadrupedPyMPC_Wrapper:
             if optimize_swing == 1:
                 self.pending_crawl_optimization = True
                 self.last_optimize_swing_detection_step = step_num
-                print(f"Crawl optimization detected at step {step_num} - flagged for next MPC cycle")
+                # print(f"Crawl optimization detected at step {step_num} - flagged for next MPC cycle")
             
             # Reset flag if too much time has passed (prevent stale flags)
             if step_num - self.last_optimize_swing_detection_step > 10:  # ~50ms timeout
@@ -176,6 +186,9 @@ class QuadrupedPyMPC_Wrapper:
                 self.wb_interface.pgg.step_freq,
                 optimize_swing,
             )
+            
+            # print(self._get_gait_name(self.wb_interface.pgg.gait_type))
+            # print(contact_sequence)
 
             if cfg.mpc_params['type'] != 'sampling' and cfg.mpc_params['use_RTI']:
                 # If the controller is gradient and is using RTI, we need to linearize the mpc after its computation
@@ -197,12 +210,9 @@ class QuadrupedPyMPC_Wrapper:
 
             # Optimize crawl patterns
             if (cfg.mpc_params['type'] != 'sampling' and cfg.mpc_params['optimize_crawl_patterns']):
-
+                print(self._get_gait_name(self.wb_interface.pgg.gait_type))
+                # print(contact_sequence)
                 if self.pending_crawl_optimization:
-                    print("**********************************************************")
-                    print("Full stance condition met, optimizing crawl patterns...")
-                    print("**********************************************************")
-                    # breakpoint()
                 
                     best_pattern_idx, pattern_cost = self.srbd_batched_controller_interface.optimize_crawl_pattern(
                         state_current,
@@ -219,12 +229,16 @@ class QuadrupedPyMPC_Wrapper:
                         optimal_crawl_type = self.srbd_batched_controller_interface.crawl_patterns_available[best_pattern_idx]
                         if optimal_crawl_type != self.wb_interface.pgg.gait_type:
                             print("**********************************************************")
-                            print(f"SWITCH: From {self.wb_interface.pgg.gait_type} to {optimal_crawl_type}")
+                            # print(f"SWITCH: From {self.wb_interface.pgg.gait_type} to {optimal_crawl_type}")
+                            print(f"SWITCH: From {self._get_gait_name(self.wb_interface.pgg.gait_type)} to {self._get_gait_name(optimal_crawl_type)}")
                             print("**********************************************************")
+                            # print(contact_sequence)
                             # self.wb_interface.pgg.update_gait_type(optimal_crawl_type)
 
                             self.wb_interface.pgg.gait_type = optimal_crawl_type
-                            self.wb_interface.pgg.reset()
+                            # self.wb_interface.pgg.reset()
+
+                            breakpoint()
                     
                     self.pending_crawl_optimization = False  # Reset flag after processing
 
