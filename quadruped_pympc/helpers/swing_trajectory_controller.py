@@ -28,6 +28,8 @@ class SwingTrajectoryController:
         self.use_feedback_linearization = True
         self.use_friction_compensation = True
 
+        self.rising_edge_detected = False #Amlan
+
     def regenerate_swing_trajectory_generator(self, step_height: float, swing_period: float) -> None:
         if self.generator == "scipy":
             from .swing_generators.scipy_swing_trajectory_generator import SwingTrajectoryGenerator
@@ -175,12 +177,42 @@ class SwingTrajectoryController:
     #         self.was_in_full_stance = in_full_stance
     #         return 0
     
-    def check_full_touchdown_condition(self, current_contact, previous_contact):
-        
+    def check_full_touchdown_condition(self, current_contact, previous_contact, contact_sequence):
+        # print("Current Contact:", current_contact)
+        # print("Previous Contact:", previous_contact)
         if(np.all(current_contact == 1) and not np.all(previous_contact == 1)):
+            print("Inside STC.......")
+            print(contact_sequence)
             return 1
         else:
             return 0
+        
+    def check_full_touchdown_condition_v2(self, current_contact, previous_contact, contact_sequence):
+
+        if(np.all(current_contact == 1) and not np.all(previous_contact == 1)):
+            self.rising_edge_detected = True
+
+        if(self.rising_edge_detected and np.all(contact_sequence[:, 0]) and np.all(contact_sequence[:, 1]) and np.all(contact_sequence[:, 2]) and not np.all(contact_sequence[:, 3])):
+            self.rising_edge_detected = False
+            return 1
+        else:
+            return 0
+        
+    def check_full_touchdown_condition_v3(self, current_contact, previous_contact, contact_sequence, lookahead=3):
+        # Detect rising edge (start of full contact)
+        if np.all(current_contact == 1) and not np.all(previous_contact == 1):
+            self.rising_edge_detected = True
+
+        # Wait until first "n lookahead" columns in contact sequence are all in stance contact
+        stable_stance = np.all(contact_sequence[:, 0:lookahead] == 1)
+        next_leg_lift = not np.all(contact_sequence[:, lookahead] == 1)
+
+        if self.rising_edge_detected and stable_stance and next_leg_lift:
+            self.rising_edge_detected = False
+            return 1
+        else:
+            return 0
+
 
     def check_touch_down_condition(self, current_contact, previous_contact):
         """

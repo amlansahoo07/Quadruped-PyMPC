@@ -22,6 +22,8 @@ class PeriodicGaitGenerator:
     # set phase offset according to the gait type
 
     def reset(self):
+        # print(f"Resetting PeriodicGaitGenerator with gait type: {self.gait_type}")
+
         # Choose of the gait, this represent the delay of each leg
         if self.gait_type == GaitType.TROT.value:
             self.phase_offset = [0.5, 1.0, 1.0, 0.5]
@@ -46,6 +48,8 @@ class PeriodicGaitGenerator:
         self._init = [False] * len(self.phase_offset)
         self.n_contact = len(self.phase_offset)
         self.time_before_switch_freq = 0
+
+        # print(f"Phase Signal in method reset: {self._phase_signal}")
 
     def update_gait_type(self, new_gait_type):
         # Save current phase signal
