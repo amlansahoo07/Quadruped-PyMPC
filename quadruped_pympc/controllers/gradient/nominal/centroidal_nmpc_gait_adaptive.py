@@ -65,7 +65,8 @@ class Acados_NMPC_GaitAdaptive:
             num_batch = len(config.mpc_params["step_freq_available"])
             print(f"Initializing batch solver for step frequency optimization with {num_batch} solvers")
         elif config.mpc_params["optimize_crawl_patterns"]:
-            num_batch = len(config.mpc_params["crawl_patterns_available"])
+            # num_batch = len(config.mpc_params["crawl_patterns_available"])
+            num_batch = 4
             print(f"Initializing batch solver for crawl pattern optimization with {num_batch} solvers")
         else:
             num_batch = 1  # Single solver

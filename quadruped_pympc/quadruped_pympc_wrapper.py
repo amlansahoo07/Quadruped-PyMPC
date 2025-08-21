@@ -224,68 +224,81 @@ class QuadrupedPyMPC_Wrapper:
                 # print(self.wb_interface.pgg.phase_offset)[0.501 0.751 0.251 0.001]
                 
                 if self.pending_crawl_optimization:
-                    # print(contact_sequence)
-                    leg_names = ['FL', 'FR', 'RL', 'RR']
+                    print("Current contact sequence:")
+                    print(contact_sequence)
 
-                    for i, row in enumerate(contact_sequence):
-                        if 0 in row:
-                            print(f"Leg being lifted is {leg_names[i]}")
-                    
+                    # leg_names = ['FL', 'FR', 'RL', 'RR']
+
+                    # for i, row in enumerate(contact_sequence):
+                    #     if 0 in row:
+                    #         print(f"Leg being lifted is {leg_names[i]}")
+                    # print("Phase signal:", self.wb_interface.pgg.phase_signal)
                     # breakpoint()
 
-                    best_pattern_idx, pattern_cost = self.srbd_batched_controller_interface.optimize_crawl_pattern(
-                        state_current,
-                        ref_state,
-                        inertia,
-                        self.wb_interface.pgg.phase_signal,
-                        self.best_sample_freq,  # Use optimized step frequency
-                        self.wb_interface.pgg.duty_factor,
-                        1,
+                    # best_pattern_idx, pattern_cost = self.srbd_batched_controller_interface.optimize_crawl_pattern(
+                    #     state_current,
+                    #     ref_state,
+                    #     inertia,
+                    #     self.wb_interface.pgg.phase_signal,
+                    #     self.best_sample_freq,  # Use optimized step frequency
+                    #     self.wb_interface.pgg.duty_factor,
+                    #     1,
+                    # )
+                    # breakpoint()
+
+                    # if pattern_cost != float('inf'): 
+                    #     # Update the periodic gait generator with the optimal pattern
+                    #     optimal_crawl_type = self.srbd_batched_controller_interface.crawl_patterns_available[best_pattern_idx]
+                    #     if optimal_crawl_type != self.wb_interface.pgg.gait_type:
+                    #         print("**********************************************************")
+                    #         # print(f"SWITCH: From {self.wb_interface.pgg.gait_type} to {optimal_crawl_type}")
+                    #         print(f"SWITCH: From {self._get_gait_name(self.wb_interface.pgg.gait_type)} to {self._get_gait_name(optimal_crawl_type)}")
+                    #         print("**********************************************************")
+                    #         # print(contact_sequence)
+                    #         # self.wb_interface.pgg.gait_type = optimal_crawl_type
+                    #         # self.wb_interface.pgg.reset()
+                    #         self.wb_interface.pgg.update_gait_type(optimal_crawl_type)
+
+                    best_pattern_idx, best_cost = self.srbd_batched_controller_interface.optimize_crawl_pattern(
+                    state_current=state_current,
+                    ref_state=ref_state,
+                    inertia=inertia,
+                    pgg_phase_signal=self.wb_interface.pgg.phase_signal,
+                    pgg_step_freq=self.best_sample_freq,
+                    pgg_duty_factor=self.wb_interface.pgg.duty_factor,
+                    optimize_swing=1,
                     )
-                    # breakpoint()
 
-                    if pattern_cost != float('inf'): 
-                        # Update the periodic gait generator with the optimal pattern
-                        optimal_crawl_type = self.srbd_batched_controller_interface.crawl_patterns_available[best_pattern_idx]
-                        if optimal_crawl_type != self.wb_interface.pgg.gait_type:
-                            print("**********************************************************")
-                            # print(f"SWITCH: From {self.wb_interface.pgg.gait_type} to {optimal_crawl_type}")
-                            print(f"SWITCH: From {self._get_gait_name(self.wb_interface.pgg.gait_type)} to {self._get_gait_name(optimal_crawl_type)}")
-                            print("**********************************************************")
-                            # print(contact_sequence)
-                            self.wb_interface.pgg.gait_type = optimal_crawl_type
-                            self.wb_interface.pgg.reset()
-
-                            # breakpoint()
-
-                            # print("**********************************************************")
-                            # print(f"GAIT TRANSITION: {self._get_gait_name(self.wb_interface.pgg.gait_type)} → {self._get_gait_name(optimal_crawl_type)}")
-                            # print("**********************************************************")
-                            
-                            # # Store pre-transition state
-                            # old_phases = self.wb_interface.pgg.phase_signal.copy()
-                            # old_contact = contact_sequence[:, 0].copy()
-                            
-                            # # Perform transition
-                            # self.wb_interface.pgg.gait_type = optimal_crawl_type
-                            # self.wb_interface.pgg.reset()  # Critical: update phases for new pattern
-                            
-                            # # Update related components
-                            # stance_time = (1 / self.wb_interface.pgg.step_freq) * self.wb_interface.pgg.duty_factor
-                            # swing_period = (1 - self.wb_interface.pgg.duty_factor) * (1 / self.wb_interface.pgg.step_freq)
-                            # self.wb_interface.frg.stance_time = stance_time
-                            # self.wb_interface.stc.regenerate_swing_trajectory_generator(
-                            #     step_height=self.wb_interface.step_height, 
-                            #     swing_period=swing_period
-                            # )
-                            
-                            # # Log transition details
-                            # new_phases = self.wb_interface.pgg.phase_signal
-                            # # print(f"Phase update: {old_phases} → {new_phases}")
-                            # # print(f"Contact state: {old_contact} (all legs in stance)")
-                            # # print(f"Updated timing: stance={stance_time:.3f}s, swing={swing_period:.3f}s")
-
-                            # # breakpoint()
+                    if best_cost != float('inf'): 
+                        # Define the same phase signals as in the interface
+                        pgg_phase_signals = [
+                            [0.021, 0.521, 0.771, 0.271],  # FL leads
+                            [0.521, 0.021, 0.271, 0.771],  # FR leads  
+                            [0.771, 0.271, 0.021, 0.521],  # RL leads
+                            [0.271, 0.771, 0.521, 0.021]   # RR leads
+                        ]
+                        
+                        optimal_phase_signal = pgg_phase_signals[best_pattern_idx]
+                        leg_names = ['FL', 'FR', 'RL', 'RR']
+                        leading_leg = leg_names[best_pattern_idx]
+                        
+                        print("**********************************************************")
+                        print(f"PHASE SIGNAL OPTIMIZATION: Best pattern leads with {leading_leg}")
+                        print(f"Optimal phase signal: {optimal_phase_signal}")
+                        print(f"Pattern cost: {best_cost:.6f}")
+                        print("**********************************************************")
+                        
+                        # Store pre-transition state for logging
+                        old_phases = self.wb_interface.pgg.phase_signal.copy()
+                        old_contact = contact_sequence[:, 0].copy()
+                        
+                        # Apply the optimal phase signal (keep same gait type)
+                        self.wb_interface.pgg.set_phase_signal(np.array(optimal_phase_signal))
+                        
+                        # Log the transition
+                        new_phases = self.wb_interface.pgg.phase_signal
+                        print(f"Phase transition: {old_phases} → {new_phases}")
+                        print(f"Contact state: {old_contact} (all legs in stance)")
                     
                     self.pending_crawl_optimization = False  # Reset flag after processing
 

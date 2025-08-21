@@ -94,10 +94,22 @@ mpc_params = {
     'optimize_crawl_patterns': True,
     'crawl_patterns_available': [
         GaitType.BACKDIAGONALCRAWL.value,    # Value 5 - [0.0, 0.5, 0.75, 0.25] - Current default
-        GaitType.BFDIAGONALCRAWL.value,      # Value 4 - [0.0, 0.25, 0.5, 0.75] - Sequential
-        GaitType.CIRCULARCRAWL.value,        # Value 3 - [0.0, 0.25, 0.75, 0.5] - Circular
-        GaitType.FRONTDIAGONALCRAWL.value,   # Value 6 - [0.5, 1.0, 0.75, 1.25] - Front diagonal
     ],
+
+    # Phase signal patterns to optimize
+    'phase_signal_patterns': [
+        [0.021, 0.521, 0.771, 0.271],  # FL leads
+        [0.521, 0.021, 0.271, 0.771],  # FR leads  
+        [0.771, 0.271, 0.021, 0.521],  # RL leads
+        [0.271, 0.771, 0.521, 0.021]   # RR leads
+    ],
+
+    # 'crawl_patterns_available': [
+    #     GaitType.BACKDIAGONALCRAWL.value,    # Value 5 - [0.0, 0.5, 0.75, 0.25] - Current default
+    #     GaitType.BFDIAGONALCRAWL.value,      # Value 4 - [0.0, 0.25, 0.5, 0.75] - Sequential
+    #     GaitType.CIRCULARCRAWL.value,        # Value 3 - [0.0, 0.25, 0.75, 0.5] - Circular
+    #     GaitType.FRONTDIAGONALCRAWL.value,   # Value 6 - [0.5, 1.0, 0.75, 1.25] - Front diagonal
+    # ],
 
     # ----- START properties only for the gradient-based mpc -----
 
@@ -212,7 +224,7 @@ simulation_params = {
                                    },
 
     # This is used to activate or deactivate the reflexes upon contact detection
-    'reflex_trigger_mode': False,       # 'tracking', 'geom_contact', False
+    'reflex_trigger_mode': 'geom_contact',       # 'tracking', 'geom_contact', False
     'reflex_next_steps_height_enhancement': False,
     'velocity_modulator': True,
 
@@ -228,7 +240,7 @@ simulation_params = {
 
     'use_inertia_recomputation':   True,
 
-    'scene':                       'flat',  # flat, random_boxes, random_pyramids, perlin
+    'scene':                       'random_boxes',  # flat, random_boxes, random_pyramids, perlin
 
     }
 # -----------------------------------------------------------------------

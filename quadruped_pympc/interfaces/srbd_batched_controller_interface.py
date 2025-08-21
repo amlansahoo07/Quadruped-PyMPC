@@ -88,55 +88,157 @@ class SRBDBatchedControllerInterface:
 
         return best_sample_freq
     
+    # def optimize_crawl_pattern(
+    #     self,
+    #     state_current: dict,
+    #     ref_state: dict,
+    #     inertia: np.ndarray,
+    #     pgg_phase_signal: np.ndarray,
+    #     pgg_step_freq: float,
+    #     pgg_duty_factor: float,
+    #     optimize_swing: int,
+    # ) -> tuple[int, float]:
+    #     """
+    #     Optimize crawl pattern by testing different crawl gait types in parallel.
+        
+    #     Returns:
+    #         best_crawl_pattern_idx: Index of the best crawl pattern
+    #         best_cost: Cost of the best pattern
+    #     """
+        
+    #     if not (self.optimize_crawl_patterns and optimize_swing == 1):
+    #         # print("Crawl pattern optimization is disabled or not applicable.")
+    #         return self.last_best_crawl_pattern_idx, float('inf')
+        
+    #     # Generate contact sequences for all crawl patterns
+    #     num_patterns = len(self.crawl_patterns_available)
+    #     contact_sequences_batch = np.zeros((num_patterns, 4, self.horizon))
+        
+    #     # Define initial phases for different crawl patterns
+    #     pgg_phase_signals = [
+    #         [0.021, 0.521, 0.771, 0.271],
+    #         [0.521, 0.021, 0.271, 0.771],
+    #         [0.771, 0.271, 0.021, 0.521],
+    #         [0.271, 0.771, 0.521, 0.021]
+    #     ]
+
+    #     #overwrite original gait timer with optimal one.
+
+    #     for j, crawl_gait_type in enumerate(self.crawl_patterns_available):
+    #         pgg_temp = PeriodicGaitGenerator(
+    #             duty_factor=pgg_duty_factor,
+    #             step_freq=pgg_step_freq,
+    #             gait_type=crawl_gait_type,
+    #             horizon=self.horizon,
+    #         )
+    #         pgg_temp._init = [False] * 4
+    #         pgg_temp.set_phase_signal(pgg_phase_signal)
+    #         contact_sequences_batch[j] = pgg_temp.compute_contact_sequence(
+    #             contact_sequence_dts=self.contact_sequence_dts,
+    #             contact_sequence_lenghts=self.contact_sequence_lenghts,
+    #         )
+
+    #     print(".....Generating the following contact sequences for batch solver.....")
+    #     print(contact_sequences_batch[0])
+    #     print(contact_sequences_batch[1])
+    #     print(contact_sequences_batch[2])
+    #     print(contact_sequences_batch[3])
+    #     print(".....................................................................")
+
+    #     # print(".....Hardcoded contact sequences.....")
+    #     # arr = np.ones((num_patterns, 4, self.horizon))
+    #     # for num in range(num_patterns):
+    #     #     arr[num, num, 3:23] = 0
+    #     # print(arr[0])
+    #     # print(arr[1])
+    #     # print(arr[2])
+    #     # print(arr[3])
+    #     # print(".....................................")
+
+    #     # Use the new crawl pattern batch controller
+    #     costs, best_pattern_idx = self.batched_controller.compute_batch_control_crawl(
+    #         state_current, ref_state, contact_sequences_batch
+    #     )
+        
+    #     best_cost = costs[best_pattern_idx]
+
+    #     # Update the last best pattern
+    #     self.last_best_crawl_pattern_idx = best_pattern_idx
+
+    #     # breakpoint()
+
+    #     return best_pattern_idx, best_cost
+
     def optimize_crawl_pattern(
-        self,
-        state_current: dict,
-        ref_state: dict,
-        inertia: np.ndarray,
-        pgg_phase_signal: np.ndarray,
-        pgg_step_freq: float,
-        pgg_duty_factor: float,
-        optimize_swing: int,
+    self,
+    state_current: dict,
+    ref_state: dict,
+    inertia: np.ndarray,
+    pgg_phase_signal: np.ndarray,
+    pgg_step_freq: float,
+    pgg_duty_factor: float,
+    optimize_swing: int,
     ) -> tuple[int, float]:
         """
-        Optimize crawl pattern by testing different crawl gait types in parallel.
+        Optimize crawl pattern by testing different phase signals for the same gait type.
         
         Returns:
-            best_crawl_pattern_idx: Index of the best crawl pattern
+            best_phase_pattern_idx: Index of the best phase pattern
             best_cost: Cost of the best pattern
         """
         
         if not (self.optimize_crawl_patterns and optimize_swing == 1):
-            # print("Crawl pattern optimization is disabled or not applicable.")
             return self.last_best_crawl_pattern_idx, float('inf')
         
-        # Generate contact sequences for all crawl patterns
-        num_patterns = len(self.crawl_patterns_available)
-        contact_sequences_batch = np.zeros((num_patterns, 4, self.horizon))
+        # Use the single crawl gait type from config
+        crawl_gait_type = self.crawl_patterns_available[0]  # Only one gait type now
         
-        for j, crawl_gait_type in enumerate(self.crawl_patterns_available):
+        # Define different phase signals to test
+        pgg_phase_signals = [
+            [0.021, 0.521, 0.771, 0.271],  # FL leads
+            [0.521, 0.021, 0.271, 0.771],  # FR leads  
+            [0.771, 0.271, 0.021, 0.521],  # RL leads
+            [0.271, 0.771, 0.521, 0.021]   # RR leads
+        ]
+        
+        # Generate contact sequences for all phase patterns
+        num_patterns = len(pgg_phase_signals)
+        contact_sequences_batch = np.zeros((num_patterns, 4, self.horizon))
+
+        print(f".....Generating contact sequences for {num_patterns} phase patterns.....")
+        
+        for j, phase_signal in enumerate(pgg_phase_signals):
             pgg_temp = PeriodicGaitGenerator(
                 duty_factor=pgg_duty_factor,
                 step_freq=pgg_step_freq,
-                gait_type=crawl_gait_type,  # Different crawl pattern
+                gait_type=crawl_gait_type,  # Same gait type for all
                 horizon=self.horizon,
             )
-            pgg_temp.set_phase_signal(pgg_phase_signal)
+            pgg_temp._init = [False] * 4
+            pgg_temp.set_phase_signal(np.array(phase_signal))  # Use different phase signals
             contact_sequences_batch[j] = pgg_temp.compute_contact_sequence(
                 contact_sequence_dts=self.contact_sequence_dts,
                 contact_sequence_lenghts=self.contact_sequence_lenghts,
             )
+            
+            print(f"Phase pattern {j}: {phase_signal}")
+            print(contact_sequences_batch[j])
 
-        # Use the new crawl pattern batch controller
+        print(".....................................................................")
+
+        # Use the batch controller to evaluate all phase patterns
         costs, best_pattern_idx = self.batched_controller.compute_batch_control_crawl(
             state_current, ref_state, contact_sequences_batch
         )
         
         best_cost = costs[best_pattern_idx]
+        best_phase_signal = pgg_phase_signals[best_pattern_idx]
 
         # Update the last best pattern
         self.last_best_crawl_pattern_idx = best_pattern_idx
 
-        # breakpoint()
+        print(f"Best phase pattern index: {best_pattern_idx}")
+        print(f"Best phase signal: {best_phase_signal}")
+        print(f"Phase pattern costs: {costs}")
 
         return best_pattern_idx, best_cost

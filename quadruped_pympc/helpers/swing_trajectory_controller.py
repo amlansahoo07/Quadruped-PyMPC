@@ -178,11 +178,8 @@ class SwingTrajectoryController:
     #         return 0
     
     def check_full_touchdown_condition(self, current_contact, previous_contact, contact_sequence):
-        # print("Current Contact:", current_contact)
-        # print("Previous Contact:", previous_contact)
+
         if(np.all(current_contact == 1) and not np.all(previous_contact == 1)):
-            print("Inside STC.......")
-            print(contact_sequence)
             return 1
         else:
             return 0
