@@ -397,7 +397,7 @@ class WBInterface:
             optimize_swing = 0
 
         if cfg.mpc_params['optimize_crawl_patterns']:
-            optimize_swing = self.stc.check_full_touchdown_condition_v3(self.current_contact, self.previous_contact, contact_sequence)
+            optimize_swing = self.stc.check_full_touchdown_condition(self.current_contact, self.previous_contact, contact_sequence)
         else:
             optimize_swing = 0
 

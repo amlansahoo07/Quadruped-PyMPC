@@ -49,14 +49,6 @@ class QuadrupedPyMPC_Wrapper:
         self.quadrupedpympc_observables_names = quadrupedpympc_observables_names
         self.quadrupedpympc_observables = {}
 
-        self.last_pattern_switch_time = 0
-        self.pattern_switch_cooldown = 0.0
-
-        # Hysteresis attributes
-        self.candidate_crawl_pattern = None
-        self.candidate_confidence_count = 0
-        self.switch_confidence_threshold = 2
-
         # Add these for crawl pattern optimization timing
         self.pending_crawl_optimization = False
         self.last_optimize_swing_detection_step = -1
@@ -67,7 +59,6 @@ class QuadrupedPyMPC_Wrapper:
             return GaitType(gait_type_value).name
         except ValueError:
             return f"UNKNOWN_GAIT_{gait_type_value}"
-
 
     def compute_actions(
         self,
@@ -152,22 +143,11 @@ class QuadrupedPyMPC_Wrapper:
             )
         )
 
-        # print("Phase signal:", self.wb_interface.pgg.phase_signal)
-        # print(contact_sequence)
-        # print("Phase offset outer loop:", self.wb_interface.pgg.phase_offset)
-
-        # if (round(self.wb_interface.pgg.phase_signal[2], 3) in [0.750, 0.800, 0.850, 0.900, 0.990, 0.0995, 0.000, 0.005, 0.010, 0.015, 0.020, 0.025, 0.030]):
-        #     print("Condition met at", self.wb_interface.pgg.phase_signal[2])
-        #     print(contact_sequence)
-        #     breakpoint()
-
-
         # Store crawl optimization flag when detected (runs at simulation frequency)
         if cfg.mpc_params['optimize_crawl_patterns']:
             if optimize_swing == 1 and step_num > 1000:
                 self.pending_crawl_optimization = True
                 self.last_optimize_swing_detection_step = step_num
-                # print(f"Crawl optimization detected at step {step_num} - flagged for next MPC cycle")
             
             # Reset flag if too much time has passed (prevent stale flags)
             if step_num - self.last_optimize_swing_detection_step > 10:  # ~50ms timeout
@@ -192,12 +172,6 @@ class QuadrupedPyMPC_Wrapper:
                 self.wb_interface.pgg.step_freq,
                 optimize_swing,
             )
-            
-            # print(self._get_gait_name(self.wb_interface.pgg.gait_type))
-            # print(contact_sequence)
-
-            # print("Phase signal after MPC:", self.wb_interface.pgg.phase_signal)
-            # print("Phase offset after MPC:", self.wb_interface.pgg.phase_offset)    
 
             if cfg.mpc_params['type'] != 'sampling' and cfg.mpc_params['use_RTI']:
                 # If the controller is gradient and is using RTI, we need to linearize the mpc after its computation
@@ -219,64 +193,23 @@ class QuadrupedPyMPC_Wrapper:
 
             # Optimize crawl patterns
             if (cfg.mpc_params['type'] != 'sampling' and cfg.mpc_params['optimize_crawl_patterns']):
-                # print(self._get_gait_name(self.wb_interface.pgg.gait_type))
-                # print(self.wb_interface.pgg.phase_signal)
-                # print(self.wb_interface.pgg.phase_offset)[0.501 0.751 0.251 0.001]
-                
                 if self.pending_crawl_optimization:
                     print("Current contact sequence:")
                     print(contact_sequence)
 
-                    # leg_names = ['FL', 'FR', 'RL', 'RR']
-
-                    # for i, row in enumerate(contact_sequence):
-                    #     if 0 in row:
-                    #         print(f"Leg being lifted is {leg_names[i]}")
-                    # print("Phase signal:", self.wb_interface.pgg.phase_signal)
-                    # breakpoint()
-
-                    # best_pattern_idx, pattern_cost = self.srbd_batched_controller_interface.optimize_crawl_pattern(
-                    #     state_current,
-                    #     ref_state,
-                    #     inertia,
-                    #     self.wb_interface.pgg.phase_signal,
-                    #     self.best_sample_freq,  # Use optimized step frequency
-                    #     self.wb_interface.pgg.duty_factor,
-                    #     1,
-                    # )
-                    # breakpoint()
-
-                    # if pattern_cost != float('inf'): 
-                    #     # Update the periodic gait generator with the optimal pattern
-                    #     optimal_crawl_type = self.srbd_batched_controller_interface.crawl_patterns_available[best_pattern_idx]
-                    #     if optimal_crawl_type != self.wb_interface.pgg.gait_type:
-                    #         print("**********************************************************")
-                    #         # print(f"SWITCH: From {self.wb_interface.pgg.gait_type} to {optimal_crawl_type}")
-                    #         print(f"SWITCH: From {self._get_gait_name(self.wb_interface.pgg.gait_type)} to {self._get_gait_name(optimal_crawl_type)}")
-                    #         print("**********************************************************")
-                    #         # print(contact_sequence)
-                    #         # self.wb_interface.pgg.gait_type = optimal_crawl_type
-                    #         # self.wb_interface.pgg.reset()
-                    #         self.wb_interface.pgg.update_gait_type(optimal_crawl_type)
-
                     best_pattern_idx, best_cost = self.srbd_batched_controller_interface.optimize_crawl_pattern(
-                    state_current=state_current,
-                    ref_state=ref_state,
-                    inertia=inertia,
-                    pgg_phase_signal=self.wb_interface.pgg.phase_signal,
-                    pgg_step_freq=self.best_sample_freq,
-                    pgg_duty_factor=self.wb_interface.pgg.duty_factor,
-                    optimize_swing=1,
-                    )
+                                                state_current=state_current,
+                                                ref_state=ref_state,
+                                                inertia=inertia,
+                                                pgg_phase_signal=self.wb_interface.pgg.phase_signal,
+                                                pgg_step_freq=self.best_sample_freq,
+                                                pgg_duty_factor=self.wb_interface.pgg.duty_factor,
+                                                optimize_swing=1,
+                                                )
 
                     if best_cost != float('inf'): 
-                        # Define the same phase signals as in the interface
-                        pgg_phase_signals = [
-                            [0.021, 0.521, 0.771, 0.271],  # FL leads
-                            [0.521, 0.021, 0.271, 0.771],  # FR leads  
-                            [0.771, 0.271, 0.021, 0.521],  # RL leads
-                            [0.271, 0.771, 0.521, 0.021]   # RR leads
-                        ]
+                        # Define the phase signals
+                        pgg_phase_signals = cfg.mpc_params['phase_signal_patterns']
                         
                         optimal_phase_signal = pgg_phase_signals[best_pattern_idx]
                         leg_names = ['FL', 'FR', 'RL', 'RR']
