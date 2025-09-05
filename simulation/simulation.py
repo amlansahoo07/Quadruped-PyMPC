@@ -21,6 +21,9 @@ from quadruped_pympc.helpers.quadruped_utils import plot_swing_mujoco
 # PyMPC controller imports
 from quadruped_pympc.quadruped_pympc_wrapper import QuadrupedPyMPC_Wrapper
 
+# NEW
+import csv
+from datetime import datetime
 
 def run_simulation(
     qpympc_cfg,
@@ -34,6 +37,18 @@ def run_simulation(
     seed=0,
     render=True,
     recording_path: PathLike = None,
+    # --- New optional plotting inputs ---
+    plot_points: list[dict] | None = None,   # [{"name": "origin", "pos": (0,0,0), "color": [1,1,1,0.9], "diameter": 0.03}, ...]
+    plot_axes: bool = False,                 # draw world XYZ axes at origin
+    axes_length: float = 0.5,                # meters
+    # --- NEW: timing options ---
+    timing_start_name: str = "start",
+    timing_end_name: str = "end",
+    timing_radius: float = 0.05,             # meters, enter-sphere detection in XY
+    timing_use_com: bool = False,            # if True use COM; else base_pos
+    allow_multiple_timings: bool = True,     # record multiple passes per episode
+    # --- NEW: timing log output ---
+    timing_log_path: PathLike | None = None, # when None, will create recording_path/metrics/timing_<ts>.csv
 ):
     np.set_printoptions(precision=3, suppress=True)
     np.random.seed(seed)
@@ -154,6 +169,71 @@ def run_simulation(
     else:
         h5py_writer = None
 
+    # Keep geom_ids to update markers across frames
+    point_marker_ids: dict[str, int] = {}   # name -> geom_id
+    axes_geom_ids = {"x": -1, "y": -1, "z": -1}
+
+    # Helper to normalize point specs
+    def _normalize_point_spec(spec: dict) -> dict:
+        name = spec.get("name", "pt")
+        pos = spec.get("pos", (0.0, 0.0, 0.0))
+        # Allow 2D tuples: (x,y) -> (x,y,0)
+        if len(pos) == 2:
+            pos = (pos[0], pos[1], 0.0)
+        color = spec.get("color", [1.0, 1.0, 1.0, 0.9])
+        diameter = float(spec.get("diameter", 0.03))
+        return {"name": name, "pos": np.array(pos, dtype=float), "color": np.array(color, dtype=float), "diameter": diameter}
+
+    # Default example if user passed None
+    if plot_points is None:
+        plot_points = [
+            {"name": "origin", "pos": (0.0, 0.0, 0.0), "color": [1, 1, 1, 0.1], "diameter": 0.03},
+            # {"name": "start",  "pos": (0.3, -0.2, 0.0), "color": [0.2, 0.8, 0.2, 0.9], "diameter": 0.035},
+            # {"name": "end",    "pos": (1.0,  0.4, 0.0), "color": [0.9, 0.2, 0.2, 0.9], "diameter": 0.035},
+        ]
+
+    # Pre-normalize specs
+    plot_points = [_normalize_point_spec(p) for p in plot_points]
+
+    # --- NEW: locate start/end points if present ---
+    def _find_point_xy(points: list[dict], name: str) -> np.ndarray | None:
+        for p in points:
+            if p["name"].lower() == name.lower():
+                pos = p["pos"]
+                return np.array([pos[0], pos[1]], dtype=float)
+        return None
+
+    start_xy = _find_point_xy(plot_points, timing_start_name)
+    end_xy   = _find_point_xy(plot_points, timing_end_name)
+
+    # --- NEW: prepare timing CSV logger ---
+    timing_writer = None
+    timing_csv_fh = None
+    pass_counter = 0
+    current_pass_idx = None  # NEW: track the active attempt index
+    if start_xy is not None and end_xy is not None:
+        ts_str = datetime.now().strftime("%Y%m%d-%H%M%S")
+        if timing_log_path is None:
+            # default: put under recording_path/metrics or ./metrics
+            base_dir = pathlib.Path(recording_path) / "metrics" if recording_path is not None else pathlib.Path.cwd() / "metrics"
+            base_dir.mkdir(parents=True, exist_ok=True)
+            timing_log_path = base_dir / f"timing_{ts_str}.csv"
+        else:
+            timing_log_path = pathlib.Path(timing_log_path)
+            timing_log_path.parent.mkdir(parents=True, exist_ok=True)
+        timing_csv_fh = open(timing_log_path, mode="w", newline="")
+        timing_writer = csv.writer(timing_csv_fh)
+        timing_writer.writerow([
+            "timestamp", "episode", "pass_idx",
+            "start_time_s", "end_time_s", "travel_time_s",
+            "start_x", "start_y", "end_x", "end_y",
+            "use_com", "radius_m", "robot", "scene", "sim_dt"
+        ])
+        print(f"[timing] Logging to {timing_log_path}")
+
+    # Storage for timings across episodes
+    travel_times: list[float] = []
+
     # -----------------------------------------------------------------------------------------------------------
     RENDER_FREQ = 30  # Hz
     N_EPISODES = num_episodes
@@ -163,6 +243,14 @@ def run_simulation(
     state_obs_history, ctrl_state_history = [], []
     for episode_num in range(N_EPISODES):
         ep_state_history, ep_ctrl_state_history, ep_time = [], [], []
+
+        # --- NEW: reset timing FSM per episode ---
+        fsm_state = "waiting_start"   # waiting_start -> timing -> cooldown
+        start_time = None
+        inside_start_prev = False
+        inside_end_prev = False
+        current_pass_idx = None  # NEW
+
         for _ in tqdm(range(N_STEPS_PER_EPISODE), desc=f"Ep:{episode_num:d}-steps:", total=N_STEPS_PER_EPISODE):
             # Update value from SE or Simulator ----------------------
             feet_pos = env.feet_pos(frame="world")
@@ -229,6 +317,7 @@ def run_simulation(
                 inertia,
                 env.mjData.contact,
             )
+            
             # Limit tau between tau_limits
             for leg in ["FL", "FR", "RL", "RR"]:
                 tau_min, tau_max = tau_limits[leg][:, 0], tau_limits[leg][:, 1]
@@ -257,6 +346,53 @@ def run_simulation(
             ep_state_history.append(state)
             ep_time.append(env.simulation_time)
             ep_ctrl_state_history.append(ctrl_state)
+
+            # --- NEW: timing detector (if both points available) ---
+            if start_xy is not None and end_xy is not None:
+                # Choose base center vs COM
+                center_xy = (com_pos[:2] if timing_use_com else base_pos[:2]).astype(float)
+                d_start = np.linalg.norm(center_xy - start_xy)
+                d_end   = np.linalg.norm(center_xy - end_xy)
+                inside_start = d_start <= timing_radius
+                inside_end   = d_end   <= timing_radius
+
+                # Rising-edge enter events
+                entered_start = (not inside_start_prev) and inside_start
+                entered_end   = (not inside_end_prev)   and inside_end
+
+                if fsm_state == "waiting_start" and entered_start:
+                    start_time = env.simulation_time
+                    fsm_state = "timing"
+                    print(f"[timing] Start passed at t={start_time:.3f}s (ep {episode_num})")
+
+                elif fsm_state == "timing" and entered_end:
+                    end_time = env.simulation_time
+                    dt = float(end_time - start_time) if start_time is not None else float("nan")
+                    travel_times.append(dt)
+                    print(f"[timing] End passed at t={end_time:.3f}s (ep {episode_num}) — travel time {dt:.3f}s")
+                    # --- NEW: append CSV row ---
+                    if timing_writer is not None:
+                        timing_writer.writerow([
+                            datetime.now().isoformat(timespec="seconds"),
+                            episode_num, pass_counter,
+                            float(start_time) if start_time is not None else np.nan,
+                            float(end_time),
+                            dt,
+                            float(start_xy[0]), float(start_xy[1]),
+                            float(end_xy[0]), float(end_xy[1]),
+                            bool(timing_use_com), float(timing_radius),
+                            str(robot_name), str(scene_name), float(simulation_dt),
+                        ])
+                        pass_counter += 1
+                    fsm_state = "cooldown"
+
+                # Cooldown: wait until we exit both spheres, then optionally re-arm
+                elif fsm_state == "cooldown":
+                    if not inside_start and not inside_end:
+                        fsm_state = "waiting_start" if allow_multiple_timings else "done"
+
+                inside_start_prev = inside_start
+                inside_end_prev = inside_end
 
             # Render only at a certain frequency -----------------------------------------------------------------
             if render and (time.time() - last_render_time > 1.0 / RENDER_FREQ or env.step_num == 1):
@@ -309,6 +445,35 @@ def run_simulation(
                         geom_id=feet_GRF_geom_ids[leg_name],
                     )
 
+                # --- NEW: plot custom points as spheres ---
+                for p in plot_points:
+                    name, pos, color, diam = p["name"], p["pos"], p["color"], p["diameter"]
+                    prev_id = point_marker_ids.get(name, -1)
+                    geom_id = render_sphere(
+                        viewer=env.viewer,
+                        position=pos.tolist(),
+                        diameter=diam,
+                        color=color.tolist(),
+                        geom_id=prev_id,
+                    )
+                    point_marker_ids[name] = geom_id
+
+                # --- NEW: optional world axes at origin ---
+                if plot_axes:
+                    origin = np.array([0.0, 0.0, 0.0])
+                    axes_geom_ids["x"] = render_vector(
+                        env.viewer, vector=np.array([1.0, 0.0, 0.0]), pos=origin, scale=axes_length, color=np.array([1, 0, 0, 0.8]),
+                        geom_id=axes_geom_ids["x"],
+                    )
+                    axes_geom_ids["y"] = render_vector(
+                        env.viewer, vector=np.array([0.0, 1.0, 0.0]), pos=origin, scale=axes_length, color=np.array([0, 1, 0, 0.8]),
+                        geom_id=axes_geom_ids["y"],
+                    )
+                    axes_geom_ids["z"] = render_vector(
+                        env.viewer, vector=np.array([0.0, 0.0, 1.0]), pos=origin, scale=axes_length, color=np.array([0, 0, 1, 0.8]),
+                        geom_id=axes_geom_ids["z"],
+                    )
+
                 env.render()
                 last_render_time = time.time()
 
@@ -322,11 +487,30 @@ def run_simulation(
 
                 env.reset(random=True)
                 quadrupedpympc_wrapper.reset(initial_feet_pos=env.feet_pos(frame="world"))
+                # --- NEW: also reset episode timing FSM ---
+                fsm_state = "waiting_start"
+                start_time = None
+                inside_start_prev = False
+                inside_end_prev = False
 
         if h5py_writer is not None:  # Save episode trajectory data to disk.
             ep_obs_history = collate_obs(ep_state_history)  # | collate_obs(ep_ctrl_state_history)
             ep_traj_time = np.asarray(ep_time)[:, np.newaxis]
             h5py_writer.append_trajectory(state_obs_traj=ep_obs_history, time=ep_traj_time)
+            pass
+
+    # --- NEW: print summary at end ---
+    if start_xy is not None and end_xy is not None and travel_times:
+        arr = np.array(travel_times, dtype=float)
+        print(f"[timing] Completed {len(arr)} start→end passes. "
+              f"mean={arr.mean():.3f}s, min={arr.min():.3f}s, max={arr.max():.3f}s")
+        
+    # --- NEW: close timing CSV if opened ---
+    if timing_csv_fh is not None:
+        try:
+            timing_csv_fh.flush()
+        finally:
+            timing_csv_fh.close()
 
     env.close()
     if h5py_writer is not None:
@@ -357,6 +541,18 @@ if __name__ == "__main__":
     pass
 
     # Run the simulation with the desired configuration.....
-    run_simulation(qpympc_cfg=qpympc_cfg)
+    # run_simulation(qpympc_cfg=qpympc_cfg)
+
+    run_simulation(
+        qpympc_cfg=qpympc_cfg,
+        render=True,
+        plot_axes=True,
+        axes_length=0.25,
+        plot_points=[
+            {"name": "origin", "pos": (0, 0, 0), "color": [0.1, 0.1, 0.1, 0.75], "diameter": 0.03},
+            {"name": "start",  "pos": (0.5, 0.0, 0.0), "color": [0.9, 0, 1, 0.9], "diameter": 0.05},
+            {"name": "end",    "pos": (3.0, 0.0, 0.5), "color": [0.9, 0.5, 0, 0.9], "diameter": 0.05},
+        ]
+    )
 
     # run_simulation(num_episodes=1, render=False)

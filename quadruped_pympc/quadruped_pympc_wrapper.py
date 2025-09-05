@@ -8,6 +8,8 @@ from quadruped_pympc.interfaces.wb_interface import WBInterface
 
 from quadruped_pympc.helpers.quadruped_utils import GaitType
 
+import time
+
 _DEFAULT_OBS = ("ref_base_height", "ref_base_angles", "nmpc_GRFs", "nmpc_footholds", "swing_time")
 
 
@@ -52,6 +54,10 @@ class QuadrupedPyMPC_Wrapper:
         # Add these for crawl pattern optimization timing
         self.pending_crawl_optimization = False
         self.last_optimize_swing_detection_step = -1
+
+        self.last_phase_opt_best_idx = -1
+        self.last_phase_opt_cost = np.nan
+        self.last_phase_opt_time_ms = np.nan
 
     def _get_gait_name(self, gait_type_value):
         """Convert gait type numeric value to readable name."""
@@ -194,9 +200,10 @@ class QuadrupedPyMPC_Wrapper:
             # Optimize crawl patterns
             if (cfg.mpc_params['type'] != 'sampling' and cfg.mpc_params['optimize_crawl_patterns']):
                 if self.pending_crawl_optimization:
-                    print("Current contact sequence:")
-                    print(contact_sequence)
+                    # print("Current contact sequence:")
+                    # print(contact_sequence)
 
+                    t0 = time.perf_counter()
                     best_pattern_idx, best_cost = self.srbd_batched_controller_interface.optimize_crawl_pattern(
                                                 state_current=state_current,
                                                 ref_state=ref_state,
@@ -206,6 +213,9 @@ class QuadrupedPyMPC_Wrapper:
                                                 pgg_duty_factor=self.wb_interface.pgg.duty_factor,
                                                 optimize_swing=1,
                                                 )
+                    self.last_phase_opt_time_ms = (time.perf_counter() - t0) * 1e3
+                    self.last_phase_opt_best_idx = int(best_pattern_idx)
+                    self.last_phase_opt_cost = float(best_cost)
 
                     if best_cost != float('inf'): 
                         # Define the phase signals
@@ -302,6 +312,12 @@ class QuadrupedPyMPC_Wrapper:
                 data = {'phase_signal': self.wb_interface.pgg._phase_signal}
             elif obs_name == 'lift_off_positions':
                 data = {'lift_off_positions': self.wb_interface.frg.lift_off_positions}
+            elif obs_name == 'mpc_phase_best_cost':
+                data = {'mpc_phase_best_cost': self.last_phase_opt_cost}
+            elif obs_name == 'mpc_phase_best_idx':
+                data = {'mpc_phase_best_idx': self.last_phase_opt_best_idx}
+            elif obs_name == 'mpc_phase_time_ms':
+                data = {'mpc_phase_time_ms': self.last_phase_opt_time_ms}
 
             else:
                 data = {}

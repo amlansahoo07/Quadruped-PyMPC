@@ -240,7 +240,7 @@ simulation_params = {
 
     'use_inertia_recomputation':   True,
 
-    'scene':                       'random_boxes',  # flat, random_boxes, random_pyramids, perlin
+    'scene':                       'random_pyramids',  # flat, random_boxes, random_pyramids, perlin
 
     }
 # -----------------------------------------------------------------------
