@@ -147,7 +147,11 @@ class SwingTrajectoryController:
         return stance
         
     def check_full_touchdown_condition(self, current_contact, previous_contact, contact_sequence, lookahead=3):
-        # Detect rising edge (start of full contact)
+        """
+        Detect when all feet have just made contact with the ground (rising edge).
+        Uses a lookahead mechanism to ensure stability and avoid transient states.
+        """
+        # Rising edge detection (transition from at least one foot in swing to all feet in stance)
         if np.all(current_contact == 1) and not np.all(previous_contact == 1):
             self.rising_edge_detected = True
 
@@ -157,7 +161,7 @@ class SwingTrajectoryController:
 
         if self.rising_edge_detected and stable_stance and next_leg_lift:
             self.rising_edge_detected = False
-            return 1
+            return 1 # Signal to trigger optimization
         else:
             return 0
 

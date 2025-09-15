@@ -17,6 +17,7 @@ from quadruped_pympc import config
 
 from .centroidal_model_nominal import Centroidal_Model_Nominal
 
+import csv
 
 # Class for the Acados NMPC, the model is in another file!
 class Acados_NMPC_GaitAdaptive:
@@ -93,8 +94,44 @@ class Acados_NMPC_GaitAdaptive:
             for n in range(self.batch):
                 self.batch_solver.ocp_solvers[n].set(stage, "u", np.zeros((self.inputs_dim,)))
 
-                # Set cost, constraints and options
+        # MPC logging setup
+        self._mpc_log_enabled = config.mpc_params['mpc_logging']
+        self._mpc_log_dir = config.mpc_params['mpc_log_dir']
+        self._mpc_log_path = None
+        self._mpc_log_step = 0
 
+    def _init_mpc_log(self):
+        if (not self._mpc_log_enabled) or (self._mpc_log_path is not None):
+            return
+        os.makedirs(self._mpc_log_dir, exist_ok=True)
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        self._mpc_log_path = os.path.join(self._mpc_log_dir, f"adaptive_mpc_{ts}.csv")
+        with open(self._mpc_log_path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow([
+                "step","wall_time_sec","solve_time_ms",
+                "best_cost","second_cost","margin_rel",
+                "best_idx","num_patterns"
+            ])
+        print(f"[MPC] Logging adaptive MPC to {self._mpc_log_path}")
+
+    def _append_mpc_log(self, wall_t, solve_ms, best_cost, second_cost, margin_rel, best_idx, num_patterns):
+        if not self._mpc_log_enabled: return
+        if self._mpc_log_path is None: self._init_mpc_log()
+        with open(self._mpc_log_path, "a", newline="") as f:
+            csv.writer(f).writerow([
+                self._mpc_log_step,
+                f"{wall_t:.6f}",
+                f"{solve_ms:.3f}",
+                f"{best_cost:.6f}",
+                "" if second_cost is None else f"{second_cost:.6f}",
+                "" if margin_rel is None else f"{margin_rel:.6f}",
+                best_idx,
+                num_patterns
+            ])
+        self._mpc_log_step += 1
+
+    # Set cost, constraints and options
     def create_ocp_solver_description(self, acados_model, num_threads_in_batch_solve=1) -> AcadosOcp:
         # Create ocp object to formulate the OCP
         ocp = AcadosOcp()
@@ -1268,6 +1305,8 @@ class Acados_NMPC_GaitAdaptive:
         inertia=config.inertia.reshape((9,)),
         mass=config.mass,
     ):
+        wall_start = time.time()
+
         start = time.time()
 
         costs = []
@@ -1423,159 +1462,174 @@ class Acados_NMPC_GaitAdaptive:
         for n in range(self.batch):
             cost_single_qp = self.batch_solver.ocp_solvers[n].get_cost()
             costs.append(cost_single_qp)
+            time_ = self.batch_solver.ocp_solvers[n].get_stats("time_tot")
+            print(f"Pattern {n}, cost: {cost_single_qp}, time: {time_}")
 
         best_pattern_index = np.argmin(costs)
+
+        solve_time_ms = (time.time() - wall_start) * 1000.0
+        sorted_costs = sorted(costs)
+        second = sorted_costs[1] if len(sorted_costs) > 1 else None
+        margin_rel = None
+        if len(sorted_costs) > 1 and sorted_costs[0] > 1e-9:
+            margin_rel = (sorted_costs[1] - sorted_costs[0]) / sorted_costs[0]
+        self._append_mpc_log(
+            time.time(), solve_time_ms,
+            costs[best_pattern_index],
+            second, margin_rel,
+            best_pattern_index, len(costs)
+        )
 
         print(f"Compute Batch control was called. Best pattern index: {best_pattern_index}")
         print(f"Crawl pattern costs: {costs}")
 
         return costs, best_pattern_index
 
-    def compute_batch_control_crawl_patterns(
-        self,
-        state,
-        reference,
-        contact_sequences_batch,  # Shape: (num_patterns, 4, horizon)
-        constraint=None,
-        external_wrenches=np.zeros((6,)),
-        inertia=config.inertia.reshape((9,)),
-        mass=config.mass,
-    ):
-        """
-        Compute batch control for different crawl patterns.
-        """
-        start = time.time()
+    # def compute_batch_control_crawl_patterns(
+    #     self,
+    #     state,
+    #     reference,
+    #     contact_sequences_batch,  # Shape: (num_patterns, 4, horizon)
+    #     constraint=None,
+    #     external_wrenches=np.zeros((6,)),
+    #     inertia=config.inertia.reshape((9,)),
+    #     mass=config.mass,
+    # ):
+    #     """
+    #     Compute batch control for different crawl patterns.
+    #     """
+    #     start = time.time()
         
-        num_patterns = contact_sequences_batch.shape[0]
-        costs = []
+    #     num_patterns = contact_sequences_batch.shape[0]
+    #     costs = []
 
-        # Perform the scaling of the states and the reference
-        state, reference, constraint = self.perform_scaling(state, reference, constraint)
+    #     # Perform the scaling of the states and the reference
+    #     state, reference, constraint = self.perform_scaling(state, reference, constraint)
 
-        mu = config.mpc_params["mu"]
-        state_acados = np.concatenate((
-            state["position"],
-            state["linear_velocity"],
-            state["orientation"],
-            state["angular_velocity"],
-            state["foot_FL"],
-            state["foot_FR"],
-            state["foot_RL"],
-            state["foot_RR"],
-            self.integral_errors,
-        ))
+    #     mu = config.mpc_params["mu"]
+    #     state_acados = np.concatenate((
+    #         state["position"],
+    #         state["linear_velocity"],
+    #         state["orientation"],
+    #         state["angular_velocity"],
+    #         state["foot_FL"],
+    #         state["foot_FR"],
+    #         state["foot_RL"],
+    #         state["foot_RR"],
+    #         self.integral_errors,
+    #     ))
 
-        # Set initial state based on first pattern's initial contact
-        FL_contact_sequence = contact_sequences_batch[0][0]
-        FR_contact_sequence = contact_sequences_batch[0][1] 
-        RL_contact_sequence = contact_sequences_batch[0][2]
-        RR_contact_sequence = contact_sequences_batch[0][3]
+    #     # Set initial state based on first pattern's initial contact
+    #     FL_contact_sequence = contact_sequences_batch[0][0]
+    #     FR_contact_sequence = contact_sequences_batch[0][1] 
+    #     RL_contact_sequence = contact_sequences_batch[0][2]
+    #     RR_contact_sequence = contact_sequences_batch[0][3]
         
-        if FL_contact_sequence[0] == 0:
-            state["foot_FL"] = reference["ref_foot_FL"][0]
-        if FR_contact_sequence[0] == 0:
-            state["foot_FR"] = reference["ref_foot_FR"][0]
-        if RL_contact_sequence[0] == 0:
-            state["foot_RL"] = reference["ref_foot_RL"][0]
-        if RR_contact_sequence[0] == 0:
-            state["foot_RR"] = reference["ref_foot_RR"][0]
+    #     if FL_contact_sequence[0] == 0:
+    #         state["foot_FL"] = reference["ref_foot_FL"][0]
+    #     if FR_contact_sequence[0] == 0:
+    #         state["foot_FR"] = reference["ref_foot_FR"][0]
+    #     if RL_contact_sequence[0] == 0:
+    #         state["foot_RL"] = reference["ref_foot_RL"][0]
+    #     if RR_contact_sequence[0] == 0:
+    #         state["foot_RR"] = reference["ref_foot_RR"][0]
 
-        # Process each crawl pattern
-        for n in range(num_patterns):
-            # Reset foot reference assignment for each pattern
-            idx_ref_foot_to_assign = np.array([0, 0, 0, 0])
+    #     # Process each crawl pattern
+    #     for n in range(num_patterns):
+    #         # Reset foot reference assignment for each pattern
+    #         idx_ref_foot_to_assign = np.array([0, 0, 0, 0])
             
-            # Get contact sequences for this pattern
-            FL_contact_sequence = contact_sequences_batch[n][0]
-            FR_contact_sequence = contact_sequences_batch[n][1]
-            RL_contact_sequence = contact_sequences_batch[n][2]
-            RR_contact_sequence = contact_sequences_batch[n][3]
+    #         # Get contact sequences for this pattern
+    #         FL_contact_sequence = contact_sequences_batch[n][0]
+    #         FR_contact_sequence = contact_sequences_batch[n][1]
+    #         RL_contact_sequence = contact_sequences_batch[n][2]
+    #         RR_contact_sequence = contact_sequences_batch[n][3]
 
-            # Set references and parameters for each horizon step
-            for j in range(self.horizon):
-                # Update foot reference assignments on contact transitions
-                if j > 1 and j < self.horizon - 1:
-                    if FL_contact_sequence[j + 1] == 0 and FL_contact_sequence[j] == 1:
-                        if reference['ref_foot_FL'].shape[0] > idx_ref_foot_to_assign[0] + 1:
-                            idx_ref_foot_to_assign[0] += 1
-                    if FR_contact_sequence[j + 1] == 0 and FR_contact_sequence[j] == 1:
-                        if reference['ref_foot_FR'].shape[0] > idx_ref_foot_to_assign[1] + 1:
-                            idx_ref_foot_to_assign[1] += 1
-                    if RL_contact_sequence[j + 1] == 0 and RL_contact_sequence[j] == 1:
-                        if reference['ref_foot_RL'].shape[0] > idx_ref_foot_to_assign[2] + 1:
-                            idx_ref_foot_to_assign[2] += 1
-                    if RR_contact_sequence[j + 1] == 0 and RR_contact_sequence[j] == 1:
-                        if reference['ref_foot_RR'].shape[0] > idx_ref_foot_to_assign[3] + 1:
-                            idx_ref_foot_to_assign[3] += 1
+    #         # Set references and parameters for each horizon step
+    #         for j in range(self.horizon):
+    #             # Update foot reference assignments on contact transitions
+    #             if j > 1 and j < self.horizon - 1:
+    #                 if FL_contact_sequence[j + 1] == 0 and FL_contact_sequence[j] == 1:
+    #                     if reference['ref_foot_FL'].shape[0] > idx_ref_foot_to_assign[0] + 1:
+    #                         idx_ref_foot_to_assign[0] += 1
+    #                 if FR_contact_sequence[j + 1] == 0 and FR_contact_sequence[j] == 1:
+    #                     if reference['ref_foot_FR'].shape[0] > idx_ref_foot_to_assign[1] + 1:
+    #                         idx_ref_foot_to_assign[1] += 1
+    #                 if RL_contact_sequence[j + 1] == 0 and RL_contact_sequence[j] == 1:
+    #                     if reference['ref_foot_RL'].shape[0] > idx_ref_foot_to_assign[2] + 1:
+    #                         idx_ref_foot_to_assign[2] += 1
+    #                 if RR_contact_sequence[j + 1] == 0 and RR_contact_sequence[j] == 1:
+    #                     if reference['ref_foot_RR'].shape[0] > idx_ref_foot_to_assign[3] + 1:
+    #                         idx_ref_foot_to_assign[3] += 1
 
-                # Create yref for this stage
-                yref = np.zeros(shape=(self.states_dim + self.inputs_dim,))
-                yref[0:3] = reference["ref_position"]
-                yref[3:6] = reference["ref_linear_velocity"]
-                yref[6:9] = reference["ref_orientation"]
-                yref[9:12] = reference["ref_angular_velocity"]
-                yref[12:15] = reference["ref_foot_FL"][idx_ref_foot_to_assign[0]]
-                yref[15:18] = reference["ref_foot_FR"][idx_ref_foot_to_assign[1]]
-                yref[18:21] = reference["ref_foot_RL"][idx_ref_foot_to_assign[2]]
-                yref[21:24] = reference["ref_foot_RR"][idx_ref_foot_to_assign[3]]
+    #             # Create yref for this stage
+    #             yref = np.zeros(shape=(self.states_dim + self.inputs_dim,))
+    #             yref[0:3] = reference["ref_position"]
+    #             yref[3:6] = reference["ref_linear_velocity"]
+    #             yref[6:9] = reference["ref_orientation"]
+    #             yref[9:12] = reference["ref_angular_velocity"]
+    #             yref[12:15] = reference["ref_foot_FL"][idx_ref_foot_to_assign[0]]
+    #             yref[15:18] = reference["ref_foot_FR"][idx_ref_foot_to_assign[1]]
+    #             yref[18:21] = reference["ref_foot_RL"][idx_ref_foot_to_assign[2]]
+    #             yref[21:24] = reference["ref_foot_RR"][idx_ref_foot_to_assign[3]]
 
-                # Set reference for this solver and stage
-                self.batch_solver.ocp_solvers[n].set(j, "yref", yref)
+    #             # Set reference for this solver and stage
+    #             self.batch_solver.ocp_solvers[n].set(j, "yref", yref)
 
-                # Set parameters including contact sequence
-                param = np.array([
-                    FL_contact_sequence[j],
-                    FR_contact_sequence[j], 
-                    RL_contact_sequence[j],
-                    RR_contact_sequence[j],
-                    mu,
-                    0.0, 0.0, 0.0, 0.0,  # stance_proximity
-                    state["position"][0],
-                    state["position"][1],
-                    state["position"][2],
-                    state["orientation"][2],
-                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  # external_wrenches
-                    inertia[0], inertia[1], inertia[2],
-                    inertia[3], inertia[4], inertia[5],
-                    inertia[6], inertia[7], inertia[8],
-                    mass,
-                ])
-                self.batch_solver.ocp_solvers[n].set(j, "p", param)
+    #             # Set parameters including contact sequence
+    #             param = np.array([
+    #                 FL_contact_sequence[j],
+    #                 FR_contact_sequence[j], 
+    #                 RL_contact_sequence[j],
+    #                 RR_contact_sequence[j],
+    #                 mu,
+    #                 0.0, 0.0, 0.0, 0.0,  # stance_proximity
+    #                 state["position"][0],
+    #                 state["position"][1],
+    #                 state["position"][2],
+    #                 state["orientation"][2],
+    #                 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  # external_wrenches
+    #                 inertia[0], inertia[1], inertia[2],
+    #                 inertia[3], inertia[4], inertia[5],
+    #                 inertia[6], inertia[7], inertia[8],
+    #                 mass,
+    #             ])
+    #             self.batch_solver.ocp_solvers[n].set(j, "p", param)
 
-            # Set terminal reference
-            yref_N = np.zeros(shape=(self.states_dim,))
-            yref_N[0:3] = reference["ref_position"]
-            yref_N[3:6] = reference["ref_linear_velocity"]
-            yref_N[6:9] = reference["ref_orientation"]
-            yref_N[9:12] = reference["ref_angular_velocity"]
-            yref_N[12:15] = reference["ref_foot_FL"][idx_ref_foot_to_assign[0]]
-            yref_N[15:18] = reference["ref_foot_FR"][idx_ref_foot_to_assign[1]]
-            yref_N[18:21] = reference["ref_foot_RL"][idx_ref_foot_to_assign[2]]
-            yref_N[21:24] = reference["ref_foot_RR"][idx_ref_foot_to_assign[3]]
-            self.batch_solver.ocp_solvers[n].set(self.horizon, "yref", yref_N)
+    #         # Set terminal reference
+    #         yref_N = np.zeros(shape=(self.states_dim,))
+    #         yref_N[0:3] = reference["ref_position"]
+    #         yref_N[3:6] = reference["ref_linear_velocity"]
+    #         yref_N[6:9] = reference["ref_orientation"]
+    #         yref_N[9:12] = reference["ref_angular_velocity"]
+    #         yref_N[12:15] = reference["ref_foot_FL"][idx_ref_foot_to_assign[0]]
+    #         yref_N[15:18] = reference["ref_foot_FR"][idx_ref_foot_to_assign[1]]
+    #         yref_N[18:21] = reference["ref_foot_RL"][idx_ref_foot_to_assign[2]]
+    #         yref_N[21:24] = reference["ref_foot_RR"][idx_ref_foot_to_assign[3]]
+    #         self.batch_solver.ocp_solvers[n].set(self.horizon, "yref", yref_N)
 
-            # Set initial state constraint
-            self.batch_solver.ocp_solvers[n].set(0, "lbx", state_acados)
-            self.batch_solver.ocp_solvers[n].set(0, "ubx", state_acados)
+    #         # Set initial state constraint
+    #         self.batch_solver.ocp_solvers[n].set(0, "lbx", state_acados)
+    #         self.batch_solver.ocp_solvers[n].set(0, "ubx", state_acados)
 
-        t_elapsed_setup = time.time() - start
+    #     t_elapsed_setup = time.time() - start
 
-        # Solve the batch problem
-        t0 = time.time()
-        self.batch_solver.solve()
-        t_elapsed_solve = time.time() - t0
+    #     # Solve the batch problem
+    #     t0 = time.time()
+    #     self.batch_solver.solve()
+    #     t_elapsed_solve = time.time() - t0
 
-        # print(f"Crawl pattern setup time: {t_elapsed_setup:.4f}s")
-        # print(f"Crawl pattern solve time: {t_elapsed_solve:.4f}s")
+    #     # print(f"Crawl pattern setup time: {t_elapsed_setup:.4f}s")
+    #     # print(f"Crawl pattern solve time: {t_elapsed_solve:.4f}s")
 
-        # Extract costs (no frequency penalty for crawl patterns)
-        for n in range(num_patterns):
-            cost_single_qp = self.batch_solver.ocp_solvers[n].get_cost()
-            costs.append(cost_single_qp)
+    #     # Extract costs (no frequency penalty for crawl patterns)
+    #     for n in range(num_patterns):
+    #         cost_single_qp = self.batch_solver.ocp_solvers[n].get_cost()
+    #         costs.append(cost_single_qp)
 
-        best_pattern_index = np.argmin(costs)
+    #     best_pattern_index = np.argmin(costs)
         
-        print(f"Crawl pattern costs: {costs}")
-        print(f"Best pattern index: {best_pattern_index}")
+    #     print(f"Crawl pattern costs: {costs}")
+    #     print(f"Best pattern index: {best_pattern_index}")
 
-        return costs, best_pattern_index
+    #     return costs, best_pattern_index

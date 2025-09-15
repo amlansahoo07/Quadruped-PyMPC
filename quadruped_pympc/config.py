@@ -95,6 +95,8 @@ mpc_params = {
     'crawl_patterns_available': [
         GaitType.BACKDIAGONALCRAWL.value,    # Value 5 - [0.0, 0.5, 0.75, 0.25] - Current default
     ],
+    'mpc_logging': False,  # Enable logging of MPC statistics
+    'mpc_log_dir': 'results/mpc_statistics',  # Directory to save MPC
 
     # Phase signal patterns to optimize
     'phase_signal_patterns': [
@@ -103,13 +105,6 @@ mpc_params = {
         [0.771, 0.271, 0.021, 0.521],  # RL leads
         [0.271, 0.771, 0.521, 0.021]   # RR leads
     ],
-
-    # 'crawl_patterns_available': [
-    #     GaitType.BACKDIAGONALCRAWL.value,    # Value 5 - [0.0, 0.5, 0.75, 0.25] - Current default
-    #     GaitType.BFDIAGONALCRAWL.value,      # Value 4 - [0.0, 0.25, 0.5, 0.75] - Sequential
-    #     GaitType.CIRCULARCRAWL.value,        # Value 3 - [0.0, 0.25, 0.75, 0.5] - Circular
-    #     GaitType.FRONTDIAGONALCRAWL.value,   # Value 6 - [0.5, 1.0, 0.75, 1.25] - Front diagonal
-    # ],
 
     # ----- START properties only for the gradient-based mpc -----
 

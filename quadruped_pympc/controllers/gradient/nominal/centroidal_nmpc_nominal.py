@@ -16,6 +16,7 @@ import quadruped_pympc.config as config
 
 from .centroidal_model_nominal import Centroidal_Model_Nominal
 
+import os, csv, time
 
 # Class for the Acados NMPC, the model is in another file!
 class Acados_NMPC_Nominal:
@@ -72,9 +73,39 @@ class Acados_NMPC_Nominal:
             # first preparation phase
             self.acados_ocp_solver.options_set("rti_phase", 1)
             status = self.acados_ocp_solver.solve()
+        
+        # MPC Logging
+        self._mpc_log_enabled = config.mpc_params['mpc_logging']
+        self._mpc_log_dir = config.mpc_params['mpc_log_dir']
+        self._mpc_log_path = None
+        self._mpc_log_step = 0
 
-            # Set cost, constraints and options
+    def _init_mpc_log(self):
+        if (not self._mpc_log_enabled) or (self._mpc_log_path is not None):
+            return
+        os.makedirs(self._mpc_log_dir, exist_ok=True)
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        self._mpc_log_path = os.path.join(self._mpc_log_dir, f"nominal_mpc_{ts}.csv")
+        with open(self._mpc_log_path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["step","wall_time_sec","solve_time_ms","cost","sqp_iter","qp_iter"])
+        print(f"[MPC] Logging nominal MPC to {self._mpc_log_path}")
 
+    def _append_mpc_log(self, wall_t, solve_ms, cost, sqp_iter=None, qp_iter=None):
+        if not self._mpc_log_enabled: return
+        if self._mpc_log_path is None: self._init_mpc_log()
+        with open(self._mpc_log_path, "a", newline="") as f:
+            csv.writer(f).writerow([
+                self._mpc_log_step,
+                f"{wall_t:.6f}",
+                f"{solve_ms:.3f}",
+                f"{cost:.6f}",
+                "" if sqp_iter is None else sqp_iter,
+                "" if qp_iter is None else qp_iter
+            ])
+        self._mpc_log_step += 1
+                
+    # Set cost, constraints and options
     def create_ocp_solver_description(self, acados_model) -> AcadosOcp:
         # Create ocp object to formulate the OCP
         ocp = AcadosOcp()
@@ -1145,6 +1176,7 @@ class Acados_NMPC_Nominal:
         inertia=config.inertia.reshape((9,)),
         mass=config.mass,
     ):
+        wall_start = time.time()
         # Take the array of the contact sequence and split it in 4 arrays,
         # one for each leg
         FL_contact_sequence = contact_sequence[0]
@@ -1450,6 +1482,24 @@ class Acados_NMPC_Nominal:
             status = self.acados_ocp_solver.solve()
             if self.verbose:
                 print("ocp time: ", self.acados_ocp_solver.get_stats('time_tot'))
+
+        # New stuff
+        solve_time_ms = (time.time() - wall_start) * 1000.0
+        cost = self.acados_ocp_solver.get_cost()
+        # (Optional) attempt to fetch iterations safely
+        sqp_iter = qp_iter = None
+        try:
+            sqp_iter = self.acados_ocp_solver.get_stats("sqp_iter")
+        except Exception:
+            pass
+        try:
+            qp_iter = self.acados_ocp_solver.get_stats("qp_iter")
+            if hasattr(qp_iter, "__len__"):
+                qp_iter = qp_iter[-1]
+        except Exception:
+            pass
+
+        self._append_mpc_log(time.time(), solve_time_ms, cost, sqp_iter, qp_iter)
 
         # Take the solution
         control = self.acados_ocp_solver.get(0, "u")

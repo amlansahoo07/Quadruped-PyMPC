@@ -164,6 +164,10 @@ def run_simulation(
     for episode_num in range(N_EPISODES):
         ep_state_history, ep_ctrl_state_history, ep_time = [], [], []
         for _ in tqdm(range(N_STEPS_PER_EPISODE), desc=f"Ep:{episode_num:d}-steps:", total=N_STEPS_PER_EPISODE):
+
+            # if env.step_num == 1000:
+            #     breakpoint()
+
             # Update value from SE or Simulator ----------------------
             feet_pos = env.feet_pos(frame="world")
             feet_vel = env.feet_vel(frame='world')

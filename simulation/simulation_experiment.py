@@ -313,6 +313,10 @@ def run_simulation(
         current_pass_idx = None  # NEW
 
         for _ in tqdm(range(N_STEPS_PER_EPISODE), desc=f"Ep:{episode_num:d}-steps:", total=N_STEPS_PER_EPISODE):
+
+            if env.step_num == 1000:
+                breakpoint()
+
             # --- NEW: apply external push before the physics step ---
             if base_body_id is not None:
                 env.mjData.xfrc_applied[base_body_id, :6] = 0.0  # clear by default

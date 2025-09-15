@@ -218,6 +218,7 @@ class QuadrupedPyMPC_Wrapper:
                     self.last_phase_opt_cost = float(best_cost)
 
                     if best_cost != float('inf'): 
+                        
                         # Define the phase signals
                         pgg_phase_signals = cfg.mpc_params['phase_signal_patterns']
                         
@@ -226,7 +227,7 @@ class QuadrupedPyMPC_Wrapper:
                         leading_leg = leg_names[best_pattern_idx]
                         
                         print("**********************************************************")
-                        print(f"PHASE SIGNAL OPTIMIZATION: Best pattern leads with {leading_leg}")
+                        # print(f"PHASE SIGNAL OPTIMIZATION: Best pattern leads with {leading_leg}")
                         print(f"Optimal phase signal: {optimal_phase_signal}")
                         print(f"Pattern cost: {best_cost:.6f}")
                         print("**********************************************************")
