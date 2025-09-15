@@ -7,7 +7,7 @@
 
 ## Overview
 
-This repo is a forked version containing various modifications to implement Batched MPC logic for phase signal-based crawl gait adaptation. This branch is being maintained for evaluation purposes as part of a dissertation submitted in fulfillment of the requirements for the MSc Robotics and AI degree at UCL (2024-25). Please refer to the original author's branch for latest developments.
+This repo is a forked version containing various modifications ([MODIFICATIONS.md](./MODIFICATIONS.md)) to implement Batched MPC logic for phase signal-based crawl gait adaptation. This branch is being maintained for evaluation purposes as part of a dissertation submitted in fulfillment of the requirements for the MSc Robotics and AI degree at UCL (2024-25). Please refer to the original author's branch for latest developments.
 
 
 This repo contains a model predictive controller based on the **single rigid body model** and written in **Python**. It comes in two flavours: gradient-based via [acados](https://github.com/acados/acados) or sampling-based via [jax](https://github.com/google/jax). The controller is tested on real robots and is compatible with [Mujoco](https://mujoco.org/). See [the end of this README](https://github.com/iit-DLSLab/Quadruped-PyMPC?tab=readme-ov-file#citing-this-work) if you want to cite this work.
